@@ -17,7 +17,7 @@ from PyQt6.QtGui import QFont
 
 def get_app_root() -> Path:
     """
-    Get the application root directory.
+    Get the application root directory (for data storage like projects/).
     Handles both normal Python execution and PyInstaller bundled .exe.
     """
     if getattr(sys, 'frozen', False):
@@ -27,6 +27,20 @@ def get_app_root() -> Path:
     else:
         # Running as normal Python script
         return Path(__file__).parent.resolve()
+
+
+def get_resource_path(relative_path: str) -> Path:
+    """
+    Get the path to a bundled resource file.
+    Works both in normal Python and PyInstaller frozen environment.
+    """
+    if getattr(sys, 'frozen', False):
+        # PyInstaller creates a temp folder and stores path in _MEIPASS (onefile)
+        # For onedir mode, resources are in the same folder as .exe
+        base_path = getattr(sys, '_MEIPASS', Path(sys.executable).parent)
+        return Path(base_path) / relative_path
+    else:
+        return Path(__file__).parent / relative_path
 
 
 def get_projects_dir() -> Path:

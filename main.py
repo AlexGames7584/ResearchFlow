@@ -26,7 +26,7 @@ from models import (
     ProjectData, NodeData, NodeMetadata, Position, EdgeData, Snippet,
     generate_uuid
 )
-from utils import ProjectManager, extract_title_from_filename, get_app_root, ModernTheme
+from utils import ProjectManager, extract_title_from_filename, get_app_root, get_resource_path, ModernTheme
 from graphics_items import (
     BaseNodeItem, PipelineModuleItem, ReferenceNodeItem, EdgeItem,
     TempConnectionLine, Colors, SnippetItem
@@ -1073,7 +1073,7 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self, "About ResearchFlow",
             "<h2>ResearchFlow</h2>"
-            "<p>Version 3.0.0</p>"
+            "<p>Version 3.0.1</p>"
             "<p>A portable research management tool for academics.</p>"
             "<p>Built with Python and PyQt6.</p>"
             "<hr>"
@@ -1129,10 +1129,24 @@ class MainWindow(QMainWindow):
             self.project_manager.save_project()
     
     def closeEvent(self, event) -> None:
-        """Handle window close."""
+        """Handle window close - ensure clean shutdown."""
+        # Stop any running animations to prevent process hanging
+        if self._dock_animation:
+            self._dock_animation.stop()
+            self._dock_animation = None
+        
+        # Stop view zoom animation
+        if hasattr(self, 'view') and self.view._zoom_animation:
+            self.view._zoom_animation.stop()
+            self.view._zoom_animation = None
+        
+        # Save project if open
         if self.project_manager.is_project_open:
             self._save_project()
+        
+        # Accept close and quit application
         event.accept()
+        QApplication.instance().quit()
 
 
 # ============================================================================
@@ -1145,9 +1159,10 @@ def main():
     
     app = QApplication(sys.argv)
     
-    # Set Global Icon
-    icon_path = str(get_app_root() / "icon.ico")
-    app.setWindowIcon(QIcon(icon_path))
+    # Set Global Icon (use resource path for PyInstaller compatibility)
+    icon_path = get_resource_path("icon.ico")
+    if icon_path.exists():
+        app.setWindowIcon(QIcon(str(icon_path)))
     
     # Apply Modern Theme Stylesheet
     app.setStyleSheet(ModernTheme.get_stylesheet())

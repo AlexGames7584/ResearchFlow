@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-3.0.0-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-3.0.1-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/python-3.10+-green.svg" alt="Python">
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey.svg" alt="Platform">
   <img src="https://img.shields.io/badge/license-MIT-orange.svg" alt="License">
@@ -28,9 +28,13 @@ ResearchFlow is a portable, aesthetically pleasing desktop application designed 
 
 ---
 
-## ✨ What's New in V3.0.0
+## ✨ What's New in V3.0.1
 
-### 📦 Portable Executable
+### 🐛 Bugfixes
+- **Clean Exit**: Fixed issue where application process remained running after closing the window.
+- **Icon Loading**: Fixed window icon not displaying in packaged .exe builds.
+
+### 📦 V3.0.0 - Portable Executable
 - **One-Click .exe**: Download and run – no Python installation required!
 - **True Portable Design**: All project data stored next to the `.exe`, perfect for USB drives.
 - **PyInstaller Optimized**: Properly handles frozen environment paths.
@@ -132,12 +136,17 @@ Create a standalone portable executable that runs without Python installed:
 
 ```bash
 pip install pyinstaller
-pyinstaller --noconsole --onefile --icon=icon.ico --name="ResearchFlow" main.py
+
+# Option 1: Single folder (recommended, faster startup)
+pyinstaller --noconsole --onedir --icon=icon.ico --add-data "icon.ico;." --name="ResearchFlow" main.py
+
+# Option 2: Single file (slower startup, but just one file)
+pyinstaller --noconsole --onefile --icon=icon.ico --add-data "icon.ico;." --name="ResearchFlow" main.py
 ```
 
-The generated `ResearchFlow.exe` will be in the `dist/` folder. 
+The generated files will be in the `dist/` folder. 
 
-> **✅ True Portable**: The `projects/` data folder is automatically created next to the `.exe` file, not in any temp or system folder. Copy the `.exe` and your `projects/` folder anywhere!
+> **✅ True Portable**: The `projects/` data folder is automatically created next to the `.exe` file, not in any temp or system folder. Copy the folder and your `projects/` anywhere!
 
 ---
 
