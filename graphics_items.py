@@ -78,7 +78,7 @@ class SnippetItem(QGraphicsRectItem):
     SNIPPET_WIDTH = 180
     TEXT_PADDING = 8
     MIN_HEIGHT = 30
-    IMAGE_MAX_HEIGHT = 100
+    IMAGE_MAX_HEIGHT = 300
     SOURCE_LABEL_HEIGHT = 18
     
     def __init__(self, snippet_data: Snippet, parent_node: "BaseNodeItem"):
@@ -99,21 +99,33 @@ class SnippetItem(QGraphicsRectItem):
             self._load_image()
         
         self._update_geometry()
+        
+    def itemChange(self, change: QGraphicsItem.GraphicsItemChange, value):
+        if change == QGraphicsItem.GraphicsItemChange.ItemSceneHasChanged:
+            # Try loading image again when scene is available
+            if self.scene() and self.snippet_data.type == "image" and not self._pixmap:
+                self._load_image()
+                if self._pixmap:
+                    self._update_geometry()
+                    # CRITICAL: Notify parent to resize
+                    if self.parentItem() and hasattr(self.parentItem(), "update_layout"):
+                        self.parentItem().update_layout()
+                    
+        return super().itemChange(change, value)
     
     def _load_image(self) -> None:
-        """Load the image from the content path."""
-        # Get absolute path from project manager
-        # For now, just try to load directly
-        try:
-            from utils import get_app_root
-            # Try relative path first
-            path = get_app_root() / "projects" / self.snippet_data.content
-            if path.exists():
-                self._pixmap = QPixmap(str(path))
-            else:
-                # Try as absolute path
-                self._pixmap = QPixmap(self.snippet_data.content)
-        except Exception:
+        """Load the image from the content path via ProjectManager."""
+        scene = self.scene()
+        if not scene or not hasattr(scene, "project_manager"):
+            # Can't resolve path without project manager
+            return
+            
+        pm = scene.project_manager
+        path = pm.get_absolute_asset_path(self.snippet_data.content)
+        
+        if path and path.exists():
+            self._pixmap = QPixmap(str(path))
+        else:
             self._pixmap = None
     
     def _update_geometry(self) -> None:
@@ -253,6 +265,12 @@ class SnippetItem(QGraphicsRectItem):
             # Edit text content
             if self.snippet_data.type == "text":
                 self._edit_text_content()
+            elif self.snippet_data.type == "image" and self._pixmap:
+                 from widgets import ImageViewerDialog
+                 views = self.scene().views()
+                 if views:
+                     dlg = ImageViewerDialog(self._pixmap, views[0])
+                     dlg.exec()
         
         super().mouseDoubleClickEvent(event)
     

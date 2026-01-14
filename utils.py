@@ -550,6 +550,25 @@ class ModernTheme:
             height: 0px;
         }}
         
+        QScrollBar:horizontal {{
+            border: none;
+            background: transparent;
+            height: 10px;
+            margin: 0;
+        }}
+        QScrollBar::handle:horizontal {{
+            background: #D0D0D0;
+            min-width: 30px;
+            border-radius: 5px;
+            margin: 2px;
+        }}
+        QScrollBar::handle:horizontal:hover {{
+            background: #A0A0A0;
+        }}
+        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+            width: 0px;
+        }}
+        
         /* GroupBox */
         QGroupBox {{
             border: none;
@@ -583,9 +602,10 @@ class ModernTheme:
             border-left: none;
             border-top-right-radius: 8px;
             border-bottom-right-radius: 8px;
-            color: {ModernTheme.TEXT_SECONDARY};
-            font-size: 16px;
-            padding: 0px;
+            color: #555555;
+            font-size: 24px;
+            font-weight: bold;
+            padding-bottom: 4px;
             margin: 0px;
         }}
         QPushButton#SidebarToggle:hover {{

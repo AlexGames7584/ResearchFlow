@@ -272,11 +272,14 @@ class ModernDockTitleBar(QWidget):
         btn_style = f"""
             QPushButton {{
                 background: transparent;
-                color: {ModernTheme.TEXT_SECONDARY};
-                border: none;
+                color: #666666;
+                border: 1px solid transparent;
                 border-radius: 4px;
+                font-family: "Segoe UI Symbol", "Microsoft YaHei", sans-serif;
+                font-size: 16px;
                 font-weight: bold;
-                font-size: 14px;
+                margin: 0px;
+                padding: 0px;
             }}
             QPushButton:hover {{
                 background: {ModernTheme.BG_TERTIARY};
@@ -287,7 +290,7 @@ class ModernDockTitleBar(QWidget):
         # Helper to create buttons
         def create_btn(text, tooltip, callback):
             btn = QPushButton(text)
-            btn.setFixedSize(24, 24)
+            btn.setFixedSize(28, 28)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setToolTip(tooltip)
             btn.clicked.connect(callback)
@@ -299,7 +302,7 @@ class ModernDockTitleBar(QWidget):
         self.float_btn = create_btn("❐", "Float/Dock", self._toggle_float)
         
         # Close Button
-        self.close_btn = create_btn("×", "Close", self.dock.close)
+        self.close_btn = create_btn("✕", "Close", self.dock.close)
         
     def _toggle_float(self):
         self.dock.setFloating(not self.dock.isFloating())
@@ -1134,3 +1137,44 @@ class PipelineRequiredDialog(QDialog):
             }
         """)
         layout.addWidget(btn, alignment=Qt.AlignmentFlag.AlignCenter)
+
+
+# ============================================================================
+# Image Viewer Dialog
+# ============================================================================
+class ImageViewerDialog(QDialog):
+    """Dialog to view images in full size."""
+    
+    def __init__(self, pixmap: QPixmap, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Image Viewer")
+        self.resize(1000, 800)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowMaximizeButtonHint)
+        
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        scroll.setStyleSheet(f"background-color: {ModernTheme.BG_SECONDARY}; border: none;")
+        
+        self.image_label = QLabel()
+        self.image_label.setPixmap(pixmap)
+        self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        scroll.setWidget(self.image_label)
+        layout.addWidget(scroll)
+        
+        # Bottom bar
+        btn_container = QWidget()
+        btn_layout = QHBoxLayout(btn_container)
+        btn_layout.setContentsMargins(10, 10, 10, 10)
+        btn_layout.addStretch()
+        
+        close_btn = QPushButton("Close")
+        close_btn.setFixedSize(100, 32)
+        close_btn.clicked.connect(self.close)
+        btn_layout.addWidget(close_btn)
+        
+        layout.addWidget(btn_container)
