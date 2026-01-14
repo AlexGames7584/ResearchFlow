@@ -484,11 +484,21 @@ class MarkdownViewerDialog(QDialog):
         # Handle LaTeX block formulas ($$...$$) - convert to MathML if possible
         def format_block_formula(match):
             formula = match.group(1).strip()
+            
+            # Extract tag number if present
+            tag_html = ""
+            tag_match = re.search(r'\\tag\s*\{([^}]*)\}|\\tag\s*(\d+)', formula)
+            if tag_match:
+                tag_num = tag_match.group(1) or tag_match.group(2)
+                tag_html = f'<span class="equation-tag">({tag_num})</span>'
+                # Remove tag from formula for processing
+                formula = re.sub(r'\\tag\s*\{[^}]*\}|\\tag\s*\d+', '', formula).strip()
+            
             mathml = self._latex_to_mathml(formula)
             if mathml:
-                return f'<div class="math-block">{mathml}</div>'
+                return f'<div class="math-block"><div class="math-content">{mathml}</div>{tag_html}</div>'
             else:
-                return f'<div class="math-block"><span class="math-formula">{self._escape_html(formula)}</span></div>'
+                return f'<div class="math-block"><div class="math-content"><span class="math-formula">{self._escape_html(formula)}</span></div>{tag_html}</div>'
         html = re.sub(r'\$\$(.+?)\$\$', format_block_formula, html, flags=re.DOTALL)
         
         # Handle LaTeX inline formulas ($...$) - convert to MathML if possible
@@ -585,30 +595,53 @@ class MarkdownViewerDialog(QDialog):
                     font-size: 13px;
                 }}
                 
-                /* LaTeX formulas - styled for readability */
+                /* LaTeX formulas - styled like Typedown */
                 .math-block {{ 
-                    background: linear-gradient(135deg, #E3F2FD 0%, #BBDEFB 100%);
-                    padding: 16px 20px;
+                    background: linear-gradient(135deg, #F8F9FA 0%, #E9ECEF 100%);
+                    padding: 16px 24px;
                     margin: 16px 0;
                     border-radius: 8px;
-                    text-align: center;
                     overflow-x: auto;
-                    border-left: 4px solid #1976D2;
+                    border-left: 4px solid #495057;
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                }}
+                .math-content {{
+                    flex: 1;
+                    text-align: center;
+                }}
+                .equation-tag {{
+                    font-family: 'Times New Roman', serif;
+                    font-size: 14px;
+                    color: #495057;
+                    margin-left: 20px;
+                    white-space: nowrap;
                 }}
                 .math-formula {{
                     font-family: 'Cambria Math', 'Latin Modern Math', 'STIX Two Math', 'Times New Roman', serif;
-                    font-size: 15px;
-                    color: #0D47A1;
+                    font-size: 16px;
+                    font-weight: 600;
+                    color: #212529;
                     white-space: pre-wrap;
                     word-wrap: break-word;
                 }}
                 .math-inline {{
                     font-family: 'Cambria Math', 'Latin Modern Math', 'Times New Roman', serif;
-                    font-size: 14px;
-                    color: #1565C0;
-                    background: #E3F2FD;
-                    padding: 1px 4px;
+                    font-size: 15px;
+                    font-weight: 600;
+                    color: #212529;
+                    background: #E9ECEF;
+                    padding: 2px 5px;
                     border-radius: 3px;
+                }}
+                /* MathML styling for bold appearance */
+                math {{
+                    font-size: 16px;
+                    font-weight: 500;
+                }}
+                math mi, math mo, math mn {{
+                    font-weight: inherit;
                 }}
                 
                 /* Other elements */
@@ -649,8 +682,12 @@ class MarkdownViewerDialog(QDialog):
         """
         try:
             from latex2mathml import converter
+            
+            # Preprocess LaTeX to handle unsupported commands
+            processed = self._preprocess_latex(latex)
+            
             # Convert LaTeX to MathML
-            mathml = converter.convert(latex)
+            mathml = converter.convert(processed)
             return mathml
         except ImportError:
             # latex2mathml not installed
@@ -658,6 +695,64 @@ class MarkdownViewerDialog(QDialog):
         except Exception:
             # Conversion failed (invalid LaTeX, etc.)
             return ""
+    
+    def _preprocess_latex(self, latex: str) -> str:
+        """
+        Preprocess LaTeX to handle commands not supported by latex2mathml.
+        """
+        import re
+        
+        result = latex
+        
+        # \pmb{x} -> \mathbf{x} (poor man's bold -> math bold)
+        result = re.sub(r'\\pmb\{([^}]*)\}', r'\\mathbf{\1}', result)
+        result = re.sub(r'\\pmb\s+(\w)', r'\\mathbf{\1}', result)
+        
+        # \tag{n} -> remove (equation tags not needed in viewer)
+        # Match all variations: \tag{1}, \tag 1, \tag1, \tag {1}, \tag{something}
+        result = re.sub(r'\\tag\s*\{[^}]*\}', '', result)  # \tag{1} or \tag {1}
+        result = re.sub(r'\\tag\s*(\d+)', '', result)  # \tag1 or \tag 1
+        # Also handle \tag followed by word at end of line
+        result = re.sub(r'\\tag\s*\w+\s*$', '', result, flags=re.MULTILINE)
+        
+        # \boldsymbol{x} -> \mathbf{x}
+        result = re.sub(r'\\boldsymbol\{([^}]*)\}', r'\\mathbf{\1}', result)
+        
+        # \bm{x} -> \mathbf{x}
+        result = re.sub(r'\\bm\{([^}]*)\}', r'\\mathbf{\1}', result)
+        
+        # \text{...} -> \mathrm{...} (more compatible)
+        result = re.sub(r'\\text\{([^}]*)\}', r'\\mathrm{\1}', result)
+        
+        # \operatorname{...} -> \mathrm{...}
+        result = re.sub(r'\\operatorname\{([^}]*)\}', r'\\mathrm{\1}', result)
+        
+        # \mathbb{X} -> X (double-struck, fallback)
+        # Keep as is - latex2mathml should handle it
+        
+        # \eqref{...} -> remove
+        result = re.sub(r'\\eqref\{[^}]*\}', '', result)
+        
+        # \label{...} -> remove
+        result = re.sub(r'\\label\{[^}]*\}', '', result)
+        
+        # \nonumber -> remove
+        result = result.replace('\\nonumber', '')
+        
+        # \\ for line breaks in non-array context -> space
+        # Be careful - don't replace inside array/matrix
+        
+        # \hspace{...}, \vspace{...} -> remove
+        result = re.sub(r'\\[hv]space\{[^}]*\}', ' ', result)
+        
+        # \quad, \qquad -> space
+        result = result.replace('\\qquad', '  ')
+        result = result.replace('\\quad', ' ')
+        
+        # Clean up multiple spaces
+        result = re.sub(r'  +', ' ', result)
+        
+        return result.strip()
 
 
 # ============================================================================
