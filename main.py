@@ -27,10 +27,10 @@ from models import (
 from utils import ProjectManager, extract_title_from_filename, get_app_root
 from graphics_items import (
     BaseNodeItem, PipelineModuleItem, ReferenceNodeItem, EdgeItem,
-    TempConnectionLine, Colors
+    TempConnectionLine, Colors, SnippetItem
 )
 from widgets import (
-    WelcomeDialog, TagDockWidget, MarkdownViewerDialog, ModulePalette,
+    WelcomeDialog, ProjectDockWidget, MarkdownViewerDialog, ModulePalette,
     PipelineRequiredDialog
 )
 
@@ -54,7 +54,18 @@ class ResearchScene(QGraphicsScene):
         self._connection_source: Optional[BaseNodeItem] = None
         self._suppress_context_menu: bool = False  # Flag to prevent context menu after connection
         
+        # Edge color settings (V1.2.0)
+        self._pipeline_edge_color = "#607D8B"
+        self._reference_edge_color = "#4CAF50"
+        
         self.project_manager: Optional[ProjectManager] = None
+    
+    def set_edge_colors(self, pipeline_color: str, reference_color: str) -> None:
+        """Set edge colors and update all existing edges."""
+        self._pipeline_edge_color = pipeline_color
+        self._reference_edge_color = reference_color
+        for edge in self._edges.values():
+            edge.update_colors(pipeline_color, reference_color)
     
     def add_node(self, node: BaseNodeItem) -> None:
         """Add a node to the scene."""
@@ -88,7 +99,8 @@ class ResearchScene(QGraphicsScene):
             source = self._nodes[source_id]
             target = self._nodes[target_id]
             
-            edge = EdgeItem(source, target, edge_id)
+            edge = EdgeItem(source, target, edge_id,
+                          self._pipeline_edge_color, self._reference_edge_color)
             self.addItem(edge)
             self._edges[edge.edge_id] = edge
             
@@ -266,6 +278,56 @@ class ResearchView(QGraphicsView):
         
         # Drag threshold in pixels
         self._drag_threshold = 10
+        
+        # Snap grid settings (activated by holding Shift)
+        self._snap_grid_size = 20
+    
+    def keyPressEvent(self, event) -> None:
+        """Handle keyboard input."""
+        from PyQt6.QtCore import Qt as QtCore
+        
+        if event.key() == QtCore.Key.Key_Delete:
+            # Delete selected items
+            self._delete_selected_items()
+            event.accept()
+        elif event.key() == QtCore.Key.Key_Up:
+            # Move selected snippet up
+            self._move_selected_snippets("up")
+            event.accept()
+        elif event.key() == QtCore.Key.Key_Down:
+            # Move selected snippet down
+            self._move_selected_snippets("down")
+            event.accept()
+        else:
+            super().keyPressEvent(event)
+    
+    def _delete_selected_items(self) -> None:
+        """Delete all selected items (nodes, edges, snippets)."""
+        selected = self._research_scene.selectedItems()
+        
+        # Process snippets first to avoid parent deletion issues
+        snippets = [item for item in selected if isinstance(item, SnippetItem)]
+        for snippet in snippets:
+            snippet.parent_node.remove_snippet(snippet)
+        
+        # Then other items
+        for item in selected:
+            if isinstance(item, EdgeItem):
+                self._research_scene.remove_edge(item.edge_id)
+            elif isinstance(item, BaseNodeItem) and not isinstance(item, SnippetItem):
+                # Ensure we don't try to delete ReferenceNodeItem/PipelineModuleItem again if processed differently
+                self._research_scene.remove_node(item.node_data.id)
+    
+    def _move_selected_snippets(self, direction: str) -> None:
+        """Move selected snippets up or down."""
+        selected = self._research_scene.selectedItems()
+        snippets = [item for item in selected if isinstance(item, SnippetItem)]
+        
+        for snippet in snippets:
+            if direction == "up":
+                snippet.parent_node.move_snippet_up(snippet)
+            elif direction == "down":
+                snippet.parent_node.move_snippet_down(snippet)
     
     def wheelEvent(self, event: QWheelEvent) -> None:
         """Zoom with mouse wheel."""
@@ -548,12 +610,18 @@ class MainWindow(QMainWindow):
         self.view = ResearchView(self.scene, self)
         self.setCentralWidget(self.view)
         
-        # Tag dock
-        self.tag_dock = TagDockWidget(self)
-        self.tag_dock.tag_added.connect(self._on_tag_added)
-        self.tag_dock.tag_removed.connect(self._on_tag_removed)
-        self.tag_dock.tag_renamed.connect(self._on_tag_renamed)
-        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.tag_dock)
+        # Project dock (Replaces Tag dock)
+        self.project_dock = ProjectDockWidget(self)
+        # Tag signals
+        self.project_dock.tag_added.connect(self._on_tag_added)
+        self.project_dock.tag_removed.connect(self._on_tag_removed)
+        self.project_dock.tag_renamed.connect(self._on_tag_renamed)
+        # Project signals
+        self.project_dock.description_changed.connect(self._on_description_changed)
+        self.project_dock.todo_changed.connect(self._on_todo_changed)
+        self.project_dock.edge_color_changed.connect(self._on_edge_color_changed)
+        
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.project_dock)
     
     def _setup_menu(self) -> None:
         """Setup the menu bar."""
@@ -674,13 +742,42 @@ class MainWindow(QMainWindow):
         if not self.project_manager.is_project_open:
             return
         
-        self.scene.project_manager = self.project_manager
-        self.scene.load_project_data(self.project_manager.project_data)
+        data = self.project_manager.project_data
         
-        # Load tags
-        self.tag_dock.set_tags(self.project_manager.project_data.global_tags)
+        # Load scene data
+        self.scene.project_manager = self.project_manager
+        self.scene.set_edge_colors(data.pipeline_edge_color, data.reference_edge_color)
+        self.scene.load_project_data(data)
+        
+        # Load project dock data
+        self.project_dock.set_project_data(
+            data.description,
+            data.todos,
+            data.global_tags,
+            data.pipeline_edge_color,
+            data.reference_edge_color
+        )
         
         self.setWindowTitle(f"ResearchFlow - {self.project_manager.current_project_name}")
+    
+    # --- New V1.2.0 Handlers ---
+    
+    def _on_description_changed(self, text: str) -> None:
+        if self.project_manager.is_project_open:
+            self.project_manager.project_data.description = text
+            self._auto_save()
+    
+    def _on_todo_changed(self) -> None:
+        if self.project_manager.is_project_open:
+            self.project_manager.project_data.todos = self.project_dock.get_todos()
+            self._auto_save()
+    
+    def _on_edge_color_changed(self, pipeline_color: str, reference_color: str) -> None:
+        if self.project_manager.is_project_open:
+            self.project_manager.project_data.pipeline_edge_color = pipeline_color
+            self.project_manager.project_data.reference_edge_color = reference_color
+            self.scene.set_edge_colors(pipeline_color, reference_color)
+            self._auto_save()
     
     def _new_project(self) -> None:
         """Create a new project via dialog."""
@@ -731,7 +828,15 @@ class MainWindow(QMainWindow):
         
         # Update project data from scene
         project_data = self.scene.get_project_data()
-        project_data.global_tags = self.tag_dock.get_tags()
+        
+        # Populate V1.2.0 fields from dock/current data
+        project_data.global_tags = self.project_dock.get_tags()
+        project_data.description = self.project_dock.get_description()
+        project_data.todos = self.project_dock.get_todos()
+        
+        current = self.project_manager.project_data
+        project_data.pipeline_edge_color = current.pipeline_edge_color
+        project_data.reference_edge_color = current.reference_edge_color
         
         self.project_manager.project_data = project_data
         
@@ -786,7 +891,7 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self, "About ResearchFlow",
             "<h2>ResearchFlow</h2>"
-            "<p>Version 1.1.0</p>"
+            "<p>Version 1.2.0</p>"
             "<p>A portable research management tool for academics.</p>"
             "<p>Built with Python and PyQt6.</p>"
             "<hr>"
@@ -826,7 +931,16 @@ class MainWindow(QMainWindow):
         """Auto-save the project with data validation."""
         if self.project_manager.is_project_open:
             project_data = self.scene.get_project_data()
-            project_data.global_tags = self.tag_dock.get_tags()
+            
+            # Populate V1.2.0 fields
+            project_data.global_tags = self.project_dock.get_tags()
+            project_data.description = self.project_dock.get_description()
+            project_data.todos = self.project_dock.get_todos()
+            
+            current = self.project_manager.project_data
+            project_data.pipeline_edge_color = current.pipeline_edge_color
+            project_data.reference_edge_color = current.reference_edge_color
+            
             self.project_manager.project_data = project_data
             # Validate and clean orphaned data
             self.project_manager.validate_and_clean_data()

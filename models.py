@@ -174,12 +174,24 @@ class ProjectData:
     edges: list[EdgeData] = field(default_factory=list)
     pipeline_initialized: bool = False
     
+    # V1.2.0: Project description and TODO
+    description: str = ""
+    todos: list[dict] = field(default_factory=list)  # [{"text": "...", "done": False}]
+    
+    # V1.2.0: Edge color customization
+    pipeline_edge_color: str = "#607D8B"  # Gray-blue for pipeline connections
+    reference_edge_color: str = "#4CAF50"  # Green for reference connections
+    
     def to_dict(self) -> dict:
         return {
             "global_tags": self.global_tags.copy(),
             "nodes": [n.to_dict() for n in self.nodes],
             "edges": [e.to_dict() for e in self.edges],
-            "pipeline_initialized": self.pipeline_initialized
+            "pipeline_initialized": self.pipeline_initialized,
+            "description": self.description,
+            "todos": [t.copy() for t in self.todos],
+            "pipeline_edge_color": self.pipeline_edge_color,
+            "reference_edge_color": self.reference_edge_color
         }
     
     @classmethod
@@ -188,7 +200,11 @@ class ProjectData:
             global_tags=data.get("global_tags", []).copy(),
             nodes=[NodeData.from_dict(n) for n in data.get("nodes", [])],
             edges=[EdgeData.from_dict(e) for e in data.get("edges", [])],
-            pipeline_initialized=data.get("pipeline_initialized", False)
+            pipeline_initialized=data.get("pipeline_initialized", False),
+            description=data.get("description", ""),
+            todos=data.get("todos", []),
+            pipeline_edge_color=data.get("pipeline_edge_color", "#607D8B"),
+            reference_edge_color=data.get("reference_edge_color", "#4CAF50")
         )
     
     def to_json(self, indent: int = 2) -> str:

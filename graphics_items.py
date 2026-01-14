@@ -553,6 +553,18 @@ class BaseNodeItem(QGraphicsRectItem):
             painter.drawRoundedRect(rect.adjusted(-2, -2, 2, 2), 10, 10)
     
     def itemChange(self, change: QGraphicsItem.GraphicsItemChange, value):
+        if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
+            # Snap to grid when Shift is held
+            from PyQt6.QtWidgets import QApplication
+            from PyQt6.QtCore import Qt
+            modifiers = QApplication.keyboardModifiers()
+            if modifiers & Qt.KeyboardModifier.ShiftModifier:
+                grid_size = 20
+                new_pos = value
+                snapped_x = round(new_pos.x() / grid_size) * grid_size
+                snapped_y = round(new_pos.y() / grid_size) * grid_size
+                return QPointF(snapped_x, snapped_y)
+        
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
             # Update node data
             pos = self.pos()
@@ -975,25 +987,40 @@ class EdgeItem(QGraphicsPathItem):
     A connection arrow between two nodes.
     Drawn as a curved bezier path with an arrowhead.
     Supports selection and deletion via context menu.
+    Different colors for reference vs pipeline connections.
     """
     
     ARROW_SIZE = 10
     
-    def __init__(self, source_node: BaseNodeItem, target_node: BaseNodeItem, edge_id: str = None):
+    def __init__(self, source_node: BaseNodeItem, target_node: BaseNodeItem, edge_id: str = None,
+                 pipeline_color: str = "#607D8B", reference_color: str = "#4CAF50"):
         super().__init__()
         self.source_node = source_node
         self.target_node = target_node
         self.edge_id = edge_id or generate_uuid()
         self._is_hover = False
         
+        # Determine edge type and color
+        self._is_reference_edge = isinstance(source_node, ReferenceNodeItem)
+        self._pipeline_color = QColor(pipeline_color)
+        self._reference_color = QColor(reference_color)
+        self._base_color = self._reference_color if self._is_reference_edge else self._pipeline_color
+        
         # Make selectable and hoverable
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setAcceptHoverEvents(True)
         
-        self.setPen(QPen(Colors.CONNECTION_LINE, 2))
+        self.setPen(QPen(self._base_color, 2))
         self.setZValue(-1)  # Draw behind nodes
         
         self.update_path()
+    
+    def update_colors(self, pipeline_color: str, reference_color: str) -> None:
+        """Update edge colors from settings."""
+        self._pipeline_color = QColor(pipeline_color)
+        self._reference_color = QColor(reference_color)
+        self._base_color = self._reference_color if self._is_reference_edge else self._pipeline_color
+        self.update()
     
     def _get_edge_point(self, rect: QRectF, center: QPointF, target: QPointF) -> QPointF:
         """Calculate the intersection point between a line from center to target and the rectangle edge."""
@@ -1070,10 +1097,10 @@ class EdgeItem(QGraphicsPathItem):
             color = Colors.SELECTION
             width = 4
         elif self._is_hover:
-            color = Colors.CONNECTION_LINE.lighter(120)
+            color = self._base_color.lighter(120)
             width = 3
         else:
-            color = Colors.CONNECTION_LINE
+            color = self._base_color
             width = 2
         
         # Draw the path

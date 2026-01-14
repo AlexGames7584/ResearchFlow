@@ -7,14 +7,16 @@ from typing import Optional, TYPE_CHECKING
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem,
-    QPushButton, QLineEdit, QLabel, QWidget, QDockWidget,
-    QTextBrowser, QFrame, QMessageBox, QInputDialog, QScrollArea,
-    QSizePolicy
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, 
+    QScrollArea, QFrame, QDockWidget, QDialog, QTextBrowser, QMessageBox,
+    QColorDialog, QTextEdit, QListWidget, QListWidgetItem, QGroupBox, 
+    QFormLayout, QMenu
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QMimeData, QSize
-from PyQt6.QtGui import QDrag, QFont, QColor, QPalette, QPixmap
-
+from PyQt6.QtCore import Qt, QMimeData, pyqtSignal, QSize, QPoint
+from PyQt6.QtGui import (
+    QDrag, QPainter, QColor, QPen, QBrush, QFont, QFontMetrics, 
+    QAction, QIcon, QPixmap
+)
 if TYPE_CHECKING:
     from utils import ProjectManager
 
@@ -241,82 +243,257 @@ class DraggableTagItem(QLabel):
 # ============================================================================
 # Tag Dock Widget
 # ============================================================================
-class TagDockWidget(QDockWidget):
+class ProjectDockWidget(QDockWidget):
     """
-    Left sidebar dock containing the global tag list.
-    Supports adding, removing, renaming and dragging tags.
+    Project management dock containing:
+    1. Project Description
+    2. TODO List
+    3. Global Color Settings
+    4. Tag Management
     """
     
+    # Tag signals
     tag_added = pyqtSignal(str)
     tag_removed = pyqtSignal(str)
-    tag_renamed = pyqtSignal(str, str)  # old_name, new_name
+    tag_renamed = pyqtSignal(str, str)
+    
+    # New V1.2.0 signals
+    description_changed = pyqtSignal(str)
+    todo_changed = pyqtSignal()  # Signal to save project
+    edge_color_changed = pyqtSignal(str, str)  # pipeline_color, reference_color
     
     def __init__(self, parent=None):
-        super().__init__("Tags", parent)
+        super().__init__("Project Manager", parent)
         self.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
-        self.setMinimumWidth(150)
-        self.setMaximumWidth(250)
+        self.setMinimumWidth(250)
         
+        # Data storage
         self._tags: list[str] = []
         self._tag_widgets: list[DraggableTagItem] = []
+        self._todos: list[dict] = []
+        
+        # Default colors
+        self._pipeline_color = "#607D8B" 
+        self._reference_color = "#4CAF50"
         
         self._setup_ui()
     
     def _setup_ui(self) -> None:
+        # Main container with scroll area
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
+        layout.setSpacing(15)
         
-        # Add tag input
-        input_layout = QHBoxLayout()
+        # --- 1. Project Description ---
+        desc_group = QGroupBox("Project Description")
+        desc_layout = QVBoxLayout(desc_group)
+        self.desc_edit = QTextEdit()
+        self.desc_edit.setPlaceholderText("Enter project description...")
+        self.desc_edit.setMaximumHeight(80)
+        self.desc_edit.textChanged.connect(self._on_desc_changed)
+        desc_layout.addWidget(self.desc_edit)
+        layout.addWidget(desc_group)
+        
+        # --- 2. Edge Colors ---
+        color_group = QGroupBox("Connection Colors")
+        color_layout = QFormLayout(color_group)
+        
+        # Pipeline Color
+        self.btn_pipeline_color = QPushButton()
+        self.btn_pipeline_color.setFixedSize(50, 24)
+        self.btn_pipeline_color.clicked.connect(lambda: self._pick_color("pipeline"))
+        color_layout.addRow("Pipeline:", self.btn_pipeline_color)
+        
+        # Reference Color
+        self.btn_ref_color = QPushButton()
+        self.btn_ref_color.setFixedSize(50, 24)
+        self.btn_ref_color.clicked.connect(lambda: self._pick_color("reference"))
+        color_layout.addRow("Reference:", self.btn_ref_color)
+        
+        self._update_color_buttons()
+        layout.addWidget(color_group)
+        
+        # --- 3. TODO List ---
+        todo_group = QGroupBox("TODO List")
+        todo_layout = QVBoxLayout(todo_group)
+        
+        # Input
+        todo_input_layout = QHBoxLayout()
+        self.todo_input = QLineEdit()
+        self.todo_input.setPlaceholderText("New task...")
+        self.todo_input.returnPressed.connect(self._add_todo)
+        
+        add_todo_btn = QPushButton("+")
+        add_todo_btn.setFixedSize(24, 24)
+        add_todo_btn.clicked.connect(self._add_todo)
+        
+        todo_input_layout.addWidget(self.todo_input)
+        todo_input_layout.addWidget(add_todo_btn)
+        todo_layout.addLayout(todo_input_layout)
+        
+        # List
+        self.todo_list = QListWidget()
+        self.todo_list.setWordWrap(True)
+        self.todo_list.setMaximumHeight(150)
+        self.todo_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.todo_list.customContextMenuRequested.connect(self._show_todo_menu)
+        self.todo_list.itemChanged.connect(self._on_todo_item_changed)
+        todo_layout.addWidget(self.todo_list)
+        layout.addWidget(todo_group)
+        
+        # --- 4. Tags ---
+        tag_group = QGroupBox("Tags")
+        tag_layout = QVBoxLayout(tag_group)
+        
+        # Tag Input
+        tag_input_layout = QHBoxLayout()
         self.tag_input = QLineEdit()
         self.tag_input.setPlaceholderText("New tag...")
         self.tag_input.returnPressed.connect(self._add_tag)
-        input_layout.addWidget(self.tag_input)
         
-        add_btn = QPushButton("+")
-        add_btn.setFixedSize(28, 28)
-        add_btn.clicked.connect(self._add_tag)
-        add_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #4CAF50;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                font-weight: bold;
-                font-size: 14pt;
-            }
-            QPushButton:hover {
-                background-color: #388E3C;
-            }
-        """)
-        input_layout.addWidget(add_btn)
+        add_tag_btn = QPushButton("+")
+        add_tag_btn.setFixedSize(24, 24)
+        add_tag_btn.clicked.connect(self._add_tag)
+        add_tag_btn.setStyleSheet("background-color: #4CAF50; color: white; border-radius: 2px;")
         
-        layout.addLayout(input_layout)
+        tag_input_layout.addWidget(self.tag_input)
+        tag_input_layout.addWidget(add_tag_btn)
+        tag_layout.addLayout(tag_input_layout)
         
-        # Scrollable tag area
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setStyleSheet("QScrollArea { border: none; }")
-        
+        # Tag List Container
         self.tags_container = QWidget()
         self.tags_layout = QVBoxLayout(self.tags_container)
         self.tags_layout.setContentsMargins(0, 0, 0, 0)
         self.tags_layout.setSpacing(5)
         self.tags_layout.addStretch()
         
-        scroll.setWidget(self.tags_container)
-        layout.addWidget(scroll)
+        tag_layout.addWidget(self.tags_container)
+        layout.addWidget(tag_group)
         
         # Help text
         help_label = QLabel("Drag tags onto nodes to assign")
-        help_label.setStyleSheet("color: #999; font-size: 9pt; font-style: italic;")
+        help_label.setStyleSheet("color: #666; font-size: 9pt; font-style: italic; margin-top: 5px;")
         help_label.setWordWrap(True)
-        layout.addWidget(help_label)
+        help_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        tag_layout.addWidget(help_label)
         
-        self.setWidget(container)
+        # Finalize scroll area
+        layout.addStretch()
+        scroll_area.setWidget(container)
+        self.setWidget(scroll_area)
+    
+    # --- Project Data Management ---
+    
+    def set_project_data(self, description: str, todos: list, tags: list, 
+                        pipeline_color: str, reference_color: str) -> None:
+        """Populate UI from project data."""
+        # 1. Description
+        self.desc_edit.blockSignals(True)
+        self.desc_edit.setText(description)
+        self.desc_edit.blockSignals(False)
+        
+        # 2. Colors
+        self._pipeline_color = pipeline_color
+        self._reference_color = reference_color
+        self._update_color_buttons()
+        
+        # 3. TODOs
+        self.todo_list.clear() # Clears widgets too?
+        self._todos = todos
+        for todo in todos:
+            self._create_todo_item(todo["text"], todo["done"])
+            
+        # 4. Tags
+        self.set_tags(tags)
+    
+    def get_description(self) -> str:
+        return self.desc_edit.toPlainText()
+    
+    def get_todos(self) -> list[dict]:
+        """Return list of todos: [{'text': '...', 'done': True/False}]"""
+        todos = []
+        for i in range(self.todo_list.count()):
+            item = self.todo_list.item(i)
+            todos.append({
+                "text": item.text(),
+                "done": item.checkState() == Qt.CheckState.Checked
+            })
+        return todos
+    
+    # --- Description Logic ---
+    
+    def _on_desc_changed(self) -> None:
+        self.description_changed.emit(self.desc_edit.toPlainText())
+        
+    # --- Color Logic ---
+    
+    def _update_color_buttons(self) -> None:
+        self.btn_pipeline_color.setStyleSheet(
+            f"background-color: {self._pipeline_color}; color: white; border: none; border-radius: 4px;"
+        )
+        self.btn_ref_color.setStyleSheet(
+            f"background-color: {self._reference_color}; color: white; border: none; border-radius: 4px;"
+        )
+    
+    def _pick_color(self, type_: str) -> None:
+        initial = QColor(self._pipeline_color if type_ == "pipeline" else self._reference_color)
+        color = QColorDialog.getColor(initial, self, f"Select {type_.title()} Connection Color")
+        
+        if color.isValid():
+            hex_color = color.name()
+            if type_ == "pipeline":
+                self._pipeline_color = hex_color
+            else:
+                self._reference_color = hex_color
+            
+            self._update_color_buttons()
+            self.edge_color_changed.emit(self._pipeline_color, self._reference_color)
+            
+    # --- TODO Logic ---
+    
+    def _add_todo(self) -> None:
+        text = self.todo_input.text().strip()
+        if text:
+            self._create_todo_item(text, False)
+            self.todo_input.clear()
+            self.todo_changed.emit()
+    
+    def _create_todo_item(self, text: str, done: bool) -> None:
+        item = QListWidgetItem(text)
+        item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+        item.setCheckState(Qt.CheckState.Checked if done else Qt.CheckState.Unchecked)
+        
+        # Apply strikeout if done
+        font = item.font()
+        font.setStrikeOut(done)
+        item.setFont(font)
+        
+        self.todo_list.addItem(item)
+    
+    def _on_todo_item_changed(self, item) -> None:
+        # Update strikeout style based on check state
+        font = item.font()
+        font.setStrikeOut(item.checkState() == Qt.CheckState.Checked)
+        item.setFont(font)
+        
+        self.todo_changed.emit()
+    
+    def _show_todo_menu(self, pos: QPoint) -> None:
+        item = self.todo_list.itemAt(pos)
+        if not item:
+            return
+            
+        menu = QMenu(self)
+        delete_action = menu.addAction("Delete Task")
+        action = menu.exec(self.todo_list.mapToGlobal(pos))
+        
+        if action == delete_action:
+            row = self.todo_list.row(item)
+            self.todo_list.takeItem(row)
+            self.todo_changed.emit()
     
     def _add_tag(self) -> None:
         """Add a new tag."""
