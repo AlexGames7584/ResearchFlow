@@ -325,15 +325,20 @@ class SnippetItem(QGraphicsRectItem):
 # Tag Badge
 # ============================================================================
 class TagBadge(QGraphicsRectItem):
-    """Small colored badge showing an assigned tag."""
+    """Small colored badge showing an assigned tag. Click to remove from node."""
     
     BADGE_HEIGHT = 16
     PADDING = 6
     
-    def __init__(self, tag_name: str, parent: QGraphicsItem):
+    def __init__(self, tag_name: str, parent: "BaseNodeItem"):
         super().__init__(parent)
         self.tag_name = tag_name
+        self.parent_node = parent
         self._color = self._generate_color(tag_name)
+        self._is_hover = False
+        
+        # Make interactive
+        self.setAcceptHoverEvents(True)
         
         # Calculate width based on text
         font = QFont("Segoe UI", 7, QFont.Weight.Bold)
@@ -352,7 +357,8 @@ class TagBadge(QGraphicsRectItem):
         rect = self.rect()
         
         # Draw rounded background
-        painter.setBrush(QBrush(self._color))
+        color = self._color.lighter(110) if self._is_hover else self._color
+        painter.setBrush(QBrush(color))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawRoundedRect(rect, 8, 8)
         
@@ -361,6 +367,33 @@ class TagBadge(QGraphicsRectItem):
         painter.setFont(font)
         painter.setPen(QPen(Colors.TEXT_LIGHT))
         painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, self.tag_name)
+        
+        # Draw X hint on hover
+        if self._is_hover:
+            painter.setPen(QPen(Colors.TEXT_LIGHT, 1))
+            x_rect = QRectF(rect.right() - 12, rect.top() + 2, 10, 12)
+            painter.drawText(x_rect, Qt.AlignmentFlag.AlignCenter, "×")
+    
+    def hoverEnterEvent(self, event: QGraphicsSceneHoverEvent) -> None:
+        self._is_hover = True
+        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.update()
+        super().hoverEnterEvent(event)
+    
+    def hoverLeaveEvent(self, event: QGraphicsSceneHoverEvent) -> None:
+        self._is_hover = False
+        self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+        self.update()
+        super().hoverLeaveEvent(event)
+    
+    def mousePressEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        """Click to remove tag from this node."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            if hasattr(self.parent_node, 'remove_tag'):
+                self.parent_node.remove_tag(self.tag_name)
+            event.accept()
+            return
+        super().mousePressEvent(event)
 
 
 # ============================================================================
@@ -614,10 +647,10 @@ class BaseNodeItem(QGraphicsRectItem):
             self.signals.data_changed.emit(self.node_data.id)
     
     def _request_delete(self) -> None:
-        """Request deletion of this node."""
-        # This will be handled by the scene/main window
-        if self.scene():
-            self.scene().removeItem(self)
+        """Request deletion of this node and its connected edges."""
+        scene = self.scene()
+        if scene and hasattr(scene, 'remove_node'):
+            scene.remove_node(self.node_data.id)
     
     def get_connection_point(self) -> QPointF:
         """Get the center point for connections."""

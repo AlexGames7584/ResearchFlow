@@ -552,6 +552,7 @@ class MainWindow(QMainWindow):
         self.tag_dock = TagDockWidget(self)
         self.tag_dock.tag_added.connect(self._on_tag_added)
         self.tag_dock.tag_removed.connect(self._on_tag_removed)
+        self.tag_dock.tag_renamed.connect(self._on_tag_renamed)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.tag_dock)
     
     def _setup_menu(self) -> None:
@@ -734,6 +735,11 @@ class MainWindow(QMainWindow):
         
         self.project_manager.project_data = project_data
         
+        # Validate and clean data before saving
+        cleaned = self.project_manager.validate_and_clean_data()
+        if any(cleaned.values()):
+            print(f"Cleaned orphaned data: {cleaned}")
+        
         if self.project_manager.save_project():
             self.statusbar.showMessage("Project saved", 3000)
         else:
@@ -804,12 +810,26 @@ class MainWindow(QMainWindow):
             node.remove_tag(tag)
         self._auto_save()
     
+    def _on_tag_renamed(self, old_name: str, new_name: str) -> None:
+        """Handle tag rename - sync to all nodes."""
+        for node in self.scene._nodes.values():
+            if old_name in node.node_data.tags:
+                # Replace old tag with new
+                idx = node.node_data.tags.index(old_name)
+                node.node_data.tags[idx] = new_name
+                # Rebuild tag badges to reflect new name
+                node._rebuild_tags()
+                node.update_layout()
+        self._auto_save()
+    
     def _auto_save(self) -> None:
-        """Auto-save the project."""
+        """Auto-save the project with data validation."""
         if self.project_manager.is_project_open:
             project_data = self.scene.get_project_data()
             project_data.global_tags = self.tag_dock.get_tags()
             self.project_manager.project_data = project_data
+            # Validate and clean orphaned data
+            self.project_manager.validate_and_clean_data()
             self.project_manager.save_project()
     
     def closeEvent(self, event) -> None:

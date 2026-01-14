@@ -244,11 +244,12 @@ class DraggableTagItem(QLabel):
 class TagDockWidget(QDockWidget):
     """
     Left sidebar dock containing the global tag list.
-    Supports adding, removing, and dragging tags.
+    Supports adding, removing, renaming and dragging tags.
     """
     
     tag_added = pyqtSignal(str)
     tag_removed = pyqtSignal(str)
+    tag_renamed = pyqtSignal(str, str)  # old_name, new_name
     
     def __init__(self, parent=None):
         super().__init__("Tags", parent)
@@ -338,11 +339,39 @@ class TagDockWidget(QDockWidget):
         """Show context menu for a tag."""
         from PyQt6.QtWidgets import QMenu
         menu = QMenu(self)
+        
+        rename_action = menu.addAction("Rename Tag")
         delete_action = menu.addAction("Delete Tag")
+        
         action = menu.exec(widget.mapToGlobal(widget.rect().bottomLeft()))
         
-        if action == delete_action:
+        if action == rename_action:
+            self._rename_tag(widget)
+        elif action == delete_action:
             self._remove_tag(widget.tag_name)
+    
+    def _rename_tag(self, widget: DraggableTagItem) -> None:
+        """Rename a tag."""
+        from PyQt6.QtWidgets import QInputDialog
+        old_name = widget.tag_name
+        new_name, ok = QInputDialog.getText(
+            self, "Rename Tag",
+            "New name:",
+            text=old_name
+        )
+        if ok and new_name and new_name != old_name:
+            # Update internal list
+            idx = self._tags.index(old_name)
+            self._tags[idx] = new_name
+            
+            # Update widget
+            widget.tag_name = new_name
+            widget.setText(new_name)
+            widget._color = widget._generate_color(new_name)
+            widget._update_style()
+            
+            # Emit signal for syncing to nodes
+            self.tag_renamed.emit(old_name, new_name)
     
     def _remove_tag(self, tag_name: str) -> None:
         """Remove a tag."""
@@ -452,16 +481,24 @@ class MarkdownViewerDialog(QDialog):
         
         html = markdown
         
-        # Handle LaTeX block formulas ($$...$$) - display as styled block
+        # Handle LaTeX block formulas ($$...$$) - convert to MathML if possible
         def format_block_formula(match):
             formula = match.group(1).strip()
-            return f'<div class="math-block"><span class="math-formula">{self._escape_html(formula)}</span></div>'
+            mathml = self._latex_to_mathml(formula)
+            if mathml:
+                return f'<div class="math-block">{mathml}</div>'
+            else:
+                return f'<div class="math-block"><span class="math-formula">{self._escape_html(formula)}</span></div>'
         html = re.sub(r'\$\$(.+?)\$\$', format_block_formula, html, flags=re.DOTALL)
         
-        # Handle LaTeX inline formulas ($...$) - display as styled inline
+        # Handle LaTeX inline formulas ($...$) - convert to MathML if possible
         def format_inline_formula(match):
             formula = match.group(1)
-            return f'<span class="math-inline">{self._escape_html(formula)}</span>'
+            mathml = self._latex_to_mathml(formula)
+            if mathml:
+                return f'<span class="math-inline">{mathml}</span>'
+            else:
+                return f'<span class="math-inline math-fallback">{self._escape_html(formula)}</span>'
         html = re.sub(r'\$([^$\n]+?)\$', format_inline_formula, html)
         
         # Headers
@@ -604,6 +641,23 @@ class MarkdownViewerDialog(QDialog):
         text = text.replace('<', '&lt;')
         text = text.replace('>', '&gt;')
         return text
+    
+    def _latex_to_mathml(self, latex: str) -> str:
+        """
+        Convert LaTeX formula to MathML for native Qt rendering.
+        Returns empty string if conversion fails.
+        """
+        try:
+            from latex2mathml import converter
+            # Convert LaTeX to MathML
+            mathml = converter.convert(latex)
+            return mathml
+        except ImportError:
+            # latex2mathml not installed
+            return ""
+        except Exception:
+            # Conversion failed (invalid LaTeX, etc.)
+            return ""
 
 
 # ============================================================================

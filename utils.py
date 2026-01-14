@@ -254,6 +254,114 @@ class ProjectManager:
             return None
         return self.current_project_path / relative_path
     
+    def delete_asset(self, relative_path: str) -> bool:
+        """
+        Delete an asset file (image or markdown).
+        Returns True if successful or file doesn't exist.
+        """
+        if not self.is_project_open:
+            return False
+        
+        abs_path = self.get_absolute_asset_path(relative_path)
+        if abs_path and abs_path.exists():
+            try:
+                abs_path.unlink()
+                return True
+            except IOError as e:
+                print(f"Error deleting asset: {e}")
+                return False
+        return True  # File doesn't exist, consider it success
+    
+    def get_referenced_assets(self) -> tuple[set[str], set[str]]:
+        """
+        Get all asset paths referenced by current project data.
+        Returns (paper_paths, image_paths).
+        """
+        if not self.project_data:
+            return set(), set()
+        
+        paper_paths = set()
+        image_paths = set()
+        
+        for node in self.project_data.nodes:
+            # Reference nodes have markdown files
+            if node.type == "reference_paper" and node.metadata.relative_path_to_md:
+                paper_paths.add(node.metadata.relative_path_to_md)
+            
+            # Snippets may have images
+            for snippet in node.snippets:
+                if snippet.type == "image" and snippet.content:
+                    image_paths.add(snippet.content)
+        
+        return paper_paths, image_paths
+    
+    def cleanup_orphaned_assets(self) -> dict[str, int]:
+        """
+        Remove asset files that are no longer referenced by any node.
+        Returns dict with counts: {'papers': n, 'images': m}
+        """
+        if not self.is_project_open:
+            return {'papers': 0, 'images': 0}
+        
+        paper_refs, image_refs = self.get_referenced_assets()
+        deleted = {'papers': 0, 'images': 0}
+        
+        # Clean orphaned papers
+        if self.papers_path and self.papers_path.exists():
+            for file in self.papers_path.iterdir():
+                if file.is_file():
+                    rel_path = f"assets/papers/{file.name}"
+                    if rel_path not in paper_refs:
+                        try:
+                            file.unlink()
+                            deleted['papers'] += 1
+                        except IOError:
+                            pass
+        
+        # Clean orphaned images
+        if self.images_path and self.images_path.exists():
+            for file in self.images_path.iterdir():
+                if file.is_file():
+                    rel_path = f"assets/images/{file.name}"
+                    if rel_path not in image_refs:
+                        try:
+                            file.unlink()
+                            deleted['images'] += 1
+                        except IOError:
+                            pass
+        
+        return deleted
+    
+    def validate_and_clean_data(self) -> dict[str, int]:
+        """
+        Validate project data and remove inconsistencies:
+        - Remove edges referencing non-existent nodes
+        - Remove orphaned asset files
+        Returns dict with counts of cleaned items.
+        """
+        if not self.project_data:
+            return {}
+        
+        cleaned = {'edges': 0, 'papers': 0, 'images': 0}
+        
+        # Get valid node IDs
+        valid_node_ids = {node.id for node in self.project_data.nodes}
+        
+        # Remove invalid edges
+        original_edge_count = len(self.project_data.edges)
+        self.project_data.edges = [
+            edge for edge in self.project_data.edges
+            if edge.source_id in valid_node_ids and edge.target_id in valid_node_ids
+        ]
+        cleaned['edges'] = original_edge_count - len(self.project_data.edges)
+        
+        # Clean orphaned assets
+        asset_cleanup = self.cleanup_orphaned_assets()
+        cleaned['papers'] = asset_cleanup['papers']
+        cleaned['images'] = asset_cleanup['images']
+        
+        return cleaned
+    
     def delete_project(self, name: str) -> bool:
         """
         Delete a project and all its contents.
