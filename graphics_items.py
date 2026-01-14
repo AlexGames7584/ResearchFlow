@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QGraphicsSceneMouseEvent, QGraphicsSceneHoverEvent,
     QStyleOptionGraphicsItem, QWidget, QMenu, QInputDialog, QLineEdit
 )
-from PyQt6.QtCore import Qt, QRectF, QPointF, QSizeF, pyqtSignal, QObject
+from PyQt6.QtCore import Qt, QRectF, QRect, QPointF, QSizeF, pyqtSignal, QObject
 from PyQt6.QtGui import (
     QPainter, QPen, QBrush, QColor, QFont, QPolygonF,
     QPainterPath, QPixmap, QFontMetrics, QCursor
@@ -85,6 +85,7 @@ class SnippetItem(QGraphicsRectItem):
         super().__init__(parent_node)
         self.snippet_data = snippet_data
         self.parent_node = parent_node
+        self.width = self.SNIPPET_WIDTH
         self._pixmap: Optional[QPixmap] = None
         self._is_hover = False
         self._is_editing_label = False
@@ -99,6 +100,12 @@ class SnippetItem(QGraphicsRectItem):
             self._load_image()
         
         self._update_geometry()
+        
+    def set_width(self, width: int) -> None:
+        if self.width != width:
+            self.width = width
+            self._update_geometry()
+            self.update()
         
     def itemChange(self, change: QGraphicsItem.GraphicsItemChange, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemSceneHasChanged:
@@ -135,7 +142,7 @@ class SnippetItem(QGraphicsRectItem):
         if self.snippet_data.type == "image" and self._pixmap and not self._pixmap.isNull():
             # Scale image to fit width while maintaining aspect ratio
             scaled = self._pixmap.scaledToWidth(
-                self.SNIPPET_WIDTH - 2 * self.TEXT_PADDING,
+                int(self.width - 2 * self.TEXT_PADDING),
                 Qt.TransformationMode.SmoothTransformation
             )
             height = min(scaled.height(), self.IMAGE_MAX_HEIGHT) + 2 * self.TEXT_PADDING
@@ -143,28 +150,22 @@ class SnippetItem(QGraphicsRectItem):
             # Text snippet - calculate height based on text
             font = ModernTheme.get_ui_font(9)
             metrics = QFontMetrics(font)
-            text_width = self.SNIPPET_WIDTH - 2 * self.TEXT_PADDING
+            text_width = int(self.width - 2 * self.TEXT_PADDING)
             text = self.snippet_data.content or "(Empty)"
             
-            # Word wrap calculation
-            words = text.split()
-            lines = 1
-            current_line = ""
-            for word in words:
-                test_line = f"{current_line} {word}".strip()
-                if metrics.horizontalAdvance(test_line) > text_width:
-                    lines += 1
-                    current_line = word
-                else:
-                    current_line = test_line
-            
-            height = max(self.MIN_HEIGHT, lines * metrics.height() + 2 * self.TEXT_PADDING)
+            # Use boundingRect for accurate multi-line height calculation
+            rect = metrics.boundingRect(
+                QRect(0, 0, text_width, 0),
+                Qt.TextFlag.TextWordWrap,
+                text
+            )
+            height = max(self.MIN_HEIGHT, rect.height() + 2 * self.TEXT_PADDING)
         
         # Add source label height if present
         if self.snippet_data.source_label:
             height += self.SOURCE_LABEL_HEIGHT
         
-        self.setRect(0, 0, self.SNIPPET_WIDTH, height)
+        self.setRect(0, 0, self.width, height)
     
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: QWidget = None) -> None:
         """Paint the snippet."""
@@ -195,7 +196,7 @@ class SnippetItem(QGraphicsRectItem):
             painter.setPen(QPen(QColor("#1565C0")))  # Blue color
             label_rect = QRectF(
                 self.TEXT_PADDING, y_offset,
-                self.SNIPPET_WIDTH - 2 * self.TEXT_PADDING,
+                self.width - 2 * self.TEXT_PADDING,
                 self.SOURCE_LABEL_HEIGHT
             )
             painter.drawText(label_rect, Qt.AlignmentFlag.AlignLeft, self.snippet_data.source_label)
@@ -204,7 +205,7 @@ class SnippetItem(QGraphicsRectItem):
         # Draw content
         content_rect = QRectF(
             self.TEXT_PADDING, y_offset,
-            self.SNIPPET_WIDTH - 2 * self.TEXT_PADDING,
+            self.width - 2 * self.TEXT_PADDING,
             rect.height() - y_offset - self.TEXT_PADDING
         )
         
@@ -219,7 +220,10 @@ class SnippetItem(QGraphicsRectItem):
                     self.IMAGE_MAX_HEIGHT,
                     Qt.TransformationMode.SmoothTransformation
                 )
-            painter.drawPixmap(int(content_rect.x()), int(content_rect.y()), scaled)
+            
+            # Center the image horizontally
+            x_pos = int(content_rect.x() + (content_rect.width() - scaled.width()) / 2)
+            painter.drawPixmap(x_pos, int(content_rect.y()), scaled)
         else:
             # Draw text
             text_font = ModernTheme.get_ui_font(9)
@@ -255,7 +259,7 @@ class SnippetItem(QGraphicsRectItem):
             if self.snippet_data.source_label:
                 label_rect = QRectF(
                     self.TEXT_PADDING, self.TEXT_PADDING,
-                    self.SNIPPET_WIDTH - 2 * self.TEXT_PADDING,
+                    self.width - 2 * self.TEXT_PADDING,
                     self.SOURCE_LABEL_HEIGHT
                 )
                 if label_rect.contains(event.pos()):
@@ -422,6 +426,48 @@ class TagBadge(QGraphicsRectItem):
         super().mousePressEvent(event)
 
 
+
+# ============================================================================
+# Resize Handle Item
+# ============================================================================
+class ResizeHandleItem(QGraphicsItem):
+    """Handle for resizing nodes."""
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setCursor(Qt.CursorShape.SizeHorCursor)
+        self.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
+        self._parent = parent
+        
+    def boundingRect(self):
+        return QRectF(0, 0, 12, 12)
+        
+    def paint(self, painter, option, widget=None):
+        painter.setPen(Qt.PenStyle.NoPen)
+        # Draw a little grip triangle
+        color = QColor(ModernTheme.TEXT_SECONDARY)
+        color.setAlpha(60)
+        painter.setBrush(color)
+        
+        path = QPainterPath()
+        # Bottom-right corner triangle
+        path.moveTo(10, 10)
+        path.lineTo(10, 2)
+        path.lineTo(2, 10)
+        path.closeSubpath()
+        painter.drawPath(path)
+        
+    def mousePressEvent(self, event):
+        self._start_pos = event.screenPos()
+        self._start_width = self._parent.node_width
+        event.accept()
+        
+    def mouseMoveEvent(self, event):
+        delta = event.screenPos().x() - self._start_pos.x()
+        new_width = max(200, self._start_width + delta)
+        self._parent.resize_node(new_width)
+        event.accept()
+
+
 # ============================================================================
 # Base Node Item
 # ============================================================================
@@ -439,10 +485,16 @@ class BaseNodeItem(QGraphicsRectItem):
     def __init__(self, node_data: NodeData):
         super().__init__()
         self.node_data = node_data
+        self.node_width = self.NODE_WIDTH
         self.signals = NodeSignals()
         
         self._snippet_items: list[SnippetItem] = []
         self._tag_badges: list[TagBadge] = []
+        
+        # Add resize handle
+        self._resize_handle = ResizeHandleItem(self)
+        self._resize_handle.setZValue(100)
+        
         self._is_hover = False
         self._drag_start_pos: Optional[QPointF] = None
         self._is_connection_source = False
@@ -510,16 +562,24 @@ class BaseNodeItem(QGraphicsRectItem):
             badge.setPos(x, y)
             x += badge.rect().width() + self.TAG_SPACING
     
+    def resize_node(self, width: float) -> None:
+        self.node_width = width
+        self.update_layout()
+        
     def update_layout(self) -> None:
         """Update positions of all child items and recalculate size."""
+        # Resize snippets to match node width (20px padding)
+        snippet_width = int(self.node_width - 20)
+        
         # Position snippets vertically
         y = self.HEADER_HEIGHT + 25  # Space for tags
         if self._tag_badges:
             y += 20  # Extra space if tags exist
         
-        x = (self.NODE_WIDTH - SnippetItem.SNIPPET_WIDTH) / 2
+        x = 10
         
         for snippet_item in self._snippet_items:
+            snippet_item.set_width(snippet_width)
             snippet_item.setPos(x, y)
             y += snippet_item.get_height() + self.SNIPPET_SPACING
         
@@ -538,9 +598,13 @@ class BaseNodeItem(QGraphicsRectItem):
         height = max(height, self.HEADER_HEIGHT + 30)  # Minimum height
         height += 10  # Bottom padding
         
-        self.setRect(0, 0, self.NODE_WIDTH, height)
+        self.setRect(0, 0, self.node_width, height)
         # Update transform origin for scaling
-        self.setTransformOriginPoint(self.NODE_WIDTH / 2, height / 2)
+        self.setTransformOriginPoint(self.node_width / 2, height / 2)
+        
+        # Position Handle
+        if hasattr(self, '_resize_handle'):
+            self._resize_handle.setPos(self.node_width - 12, height - 12)
     
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: QWidget = None) -> None:
         rect = self.rect()

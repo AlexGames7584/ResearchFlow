@@ -600,12 +600,13 @@ class ModernTheme:
             background-color: rgba(255, 255, 255, 0.9);
             border: 1px solid {ModernTheme.BORDER_LIGHT};
             border-left: none;
-            border-top-right-radius: 8px;
-            border-bottom-right-radius: 8px;
+            border-top-left-radius: 0px;
+            border-bottom-left-radius: 0px;
+            border-top-right-radius: 12px;
+            border-bottom-right-radius: 12px;
             color: #555555;
             font-size: 24px;
             font-weight: bold;
-            padding-bottom: 4px;
             margin: 0px;
         }}
         QPushButton#SidebarToggle:hover {{

@@ -1,10 +1,21 @@
 # ResearchFlow
 
-**Version 2.0.0** | The Ultimate Academic Research Workflow Manager
+**Version 2.1.0** | The Ultimate Academic Research Workflow Manager
 
 ResearchFlow is a portable, aesthetically pleasing desktop application designed for academic researchers to manage workflows, literature, and ideas. Built with a focus on modern design and fluid user experience, it features a Notion-like interface, rich interactions, and powerful project management tools.
 
 ---
+
+## ✨ What's New in V2.1.0
+
+### 🖼️ Enhanced Media & Layout
+- **Image Snippets**: Auto-scaling images that fit perfectly within nodes. Double-click to view in full-size.
+- **Dynamic Resizing**: Nodes can now be resized horizontally! Drag the handle at the bottom-right corner to adjust layout.
+- **Smart Wrapping**: Long text snippets now automatically wrap and calculate height accurately, adapting to the node's width.
+
+### 🎨 UI Refinements
+- **Polished Sidebar**: Improved toggle button interactions and layout.
+- **Design System**: Standardized horizontal scrolling and consistent icon usage (`icon.ico`).
 
 ## ✨ What's New in V2.0.0
 

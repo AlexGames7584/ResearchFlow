@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QPointF, QRectF, QMimeData, QByteArray, QBuffer
 from PyQt6.QtGui import (
     QAction, QKeySequence, QDragEnterEvent, QDropEvent,
-    QMouseEvent, QWheelEvent, QClipboard, QImage, QColor, QPainter, QBrush
+    QMouseEvent, QWheelEvent, QClipboard, QImage, QColor, QPainter, QBrush, QIcon
 )
 
 from models import (
@@ -624,9 +624,9 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.project_dock)
         
         # Sidebar Toggle Button
-        self.sidebar_toggle = QPushButton("›", self)
+        self.sidebar_toggle = QPushButton("❯", self)
         self.sidebar_toggle.setObjectName("SidebarToggle")
-        self.sidebar_toggle.setFixedSize(24, 48)
+        self.sidebar_toggle.setFixedSize(36, 48)
         self.sidebar_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
         self.sidebar_toggle.hide()
         self.sidebar_toggle.clicked.connect(self.project_dock.show)
@@ -915,7 +915,7 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self, "About ResearchFlow",
             "<h2>ResearchFlow</h2>"
-            "<p>Version 2.0.0</p>"
+            "<p>Version 2.1.0</p>"
             "<p>A portable research management tool for academics.</p>"
             "<p>Built with Python and PyQt6.</p>"
             "<hr>"
@@ -986,6 +986,10 @@ def main():
     projects_dir.mkdir(exist_ok=True)
     
     app = QApplication(sys.argv)
+    
+    # Set Global Icon
+    icon_path = str(get_app_root() / "icon.ico")
+    app.setWindowIcon(QIcon(icon_path))
     
     # Apply Modern Theme Stylesheet
     app.setStyleSheet(ModernTheme.get_stylesheet())
