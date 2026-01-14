@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, 
     QScrollArea, QFrame, QDockWidget, QDialog, QTextBrowser, QMessageBox,
     QColorDialog, QTextEdit, QListWidget, QListWidgetItem, QGroupBox, 
-    QFormLayout, QMenu
+    QFormLayout, QMenu, QSplitter
 )
 from PyQt6.QtCore import Qt, QMimeData, pyqtSignal, QSize, QPoint
 from PyQt6.QtGui import (
@@ -349,27 +349,28 @@ class ProjectDockWidget(QDockWidget):
         self._setup_ui()
     
     def _setup_ui(self) -> None:
-        # Main container with scroll area
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        container = QWidget()
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(15)
+        # Main container using Splitter for adjustable layouts
+        wrapper = QWidget()
+        wrapper_layout = QVBoxLayout(wrapper)
+        wrapper_layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.splitter = QSplitter(Qt.Orientation.Vertical)
+        self.splitter.setChildrenCollapsible(False)
         
         # --- 1. Project Description ---
         desc_group = QGroupBox("Project Description")
         desc_layout = QVBoxLayout(desc_group)
+        desc_layout.setContentsMargins(10, 15, 10, 10)
         self.desc_edit = QTextEdit()
         self.desc_edit.setPlaceholderText("Enter project description...")
-        self.desc_edit.setMaximumHeight(80)
         self.desc_edit.textChanged.connect(self._on_desc_changed)
         desc_layout.addWidget(self.desc_edit)
-        layout.addWidget(desc_group)
+        self.splitter.addWidget(desc_group)
         
         # --- 2. Edge Colors ---
         color_group = QGroupBox("Connection Colors")
         color_layout = QFormLayout(color_group)
+        color_layout.setContentsMargins(10, 15, 10, 10)
         
         # Pipeline Color
         self.btn_pipeline_color = QPushButton()
@@ -384,11 +385,12 @@ class ProjectDockWidget(QDockWidget):
         color_layout.addRow("Reference:", self.btn_ref_color)
         
         self._update_color_buttons()
-        layout.addWidget(color_group)
+        self.splitter.addWidget(color_group)
         
         # --- 3. TODO List ---
         todo_group = QGroupBox("TODO List")
         todo_layout = QVBoxLayout(todo_group)
+        todo_layout.setContentsMargins(10, 15, 10, 10)
         
         # Input
         todo_input_layout = QHBoxLayout()
@@ -407,16 +409,16 @@ class ProjectDockWidget(QDockWidget):
         # List
         self.todo_list = QListWidget()
         self.todo_list.setWordWrap(True)
-        self.todo_list.setMaximumHeight(150)
         self.todo_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.todo_list.customContextMenuRequested.connect(self._show_todo_menu)
         self.todo_list.itemChanged.connect(self._on_todo_item_changed)
         todo_layout.addWidget(self.todo_list)
-        layout.addWidget(todo_group)
+        self.splitter.addWidget(todo_group)
         
         # --- 4. Tags ---
         tag_group = QGroupBox("Tags")
         tag_layout = QVBoxLayout(tag_group)
+        tag_layout.setContentsMargins(10, 15, 10, 10)
         
         # Tag Input
         tag_input_layout = QHBoxLayout()
@@ -433,15 +435,18 @@ class ProjectDockWidget(QDockWidget):
         tag_input_layout.addWidget(add_tag_btn)
         tag_layout.addLayout(tag_input_layout)
         
-        # Tag List Container
+        # Tag List Container (Scrollable)
         self.tags_container = QWidget()
         self.tags_layout = QVBoxLayout(self.tags_container)
         self.tags_layout.setContentsMargins(0, 0, 0, 0)
         self.tags_layout.setSpacing(5)
         self.tags_layout.addStretch()
         
-        tag_layout.addWidget(self.tags_container)
-        layout.addWidget(tag_group)
+        tags_scroll = QScrollArea()
+        tags_scroll.setWidgetResizable(True)
+        tags_scroll.setWidget(self.tags_container)
+        tags_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        tag_layout.addWidget(tags_scroll)
         
         # Help text
         help_label = QLabel("Drag tags onto nodes to assign")
@@ -450,10 +455,32 @@ class ProjectDockWidget(QDockWidget):
         help_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         tag_layout.addWidget(help_label)
         
-        # Finalize scroll area
-        layout.addStretch()
-        scroll_area.setWidget(container)
-        self.setWidget(scroll_area)
+        self.splitter.addWidget(tag_group)
+        
+        # Styling
+        self.splitter.setStyleSheet("""
+            QSplitter::handle {
+                background-color: #E0E0E0;
+                height: 2px;
+                margin: 2px 10px;
+            }
+            QSplitter::handle:hover {
+                background-color: #2196F3;
+                height: 4px;
+            }
+        """)
+
+        wrapper_layout.addWidget(self.splitter)
+        self.setWidget(wrapper)
+
+    def get_layout_state(self) -> list[int]:
+        if hasattr(self, 'splitter'):
+            return self.splitter.sizes()
+        return []
+        
+    def set_layout_state(self, sizes: list[int]) -> None:
+        if hasattr(self, 'splitter') and sizes:
+            self.splitter.setSizes(sizes)
     
     # --- Project Data Management ---
     
@@ -1016,7 +1043,7 @@ class ModulePaletteItem(QLabel):
         self.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setCursor(Qt.CursorShape.OpenHandCursor)
-        self.setFixedSize(80, 50)
+        self.setFixedSize(80, 30)
         
         self.setStyleSheet(f"""
             QLabel {{

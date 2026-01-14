@@ -646,6 +646,32 @@ class MainWindow(QMainWindow):
             y = (self.height() - self.sidebar_toggle.height()) // 2
             self.sidebar_toggle.move(0, y)
             self.sidebar_toggle.raise_()
+            
+    def closeEvent(self, event) -> None:
+        """Handle application close event - save and clean."""
+        if self.project_manager.is_project_open:
+            # Gather state including layout
+            project_data = self.scene.get_project_data()
+            project_data.global_tags = self.project_dock.get_tags()
+            project_data.description = self.project_dock.get_description()
+            project_data.todos = self.project_dock.get_todos()
+            
+            current = self.project_manager.project_data
+            project_data.pipeline_edge_color = current.pipeline_edge_color
+            project_data.reference_edge_color = current.reference_edge_color
+            project_data.dock_layout = self.project_dock.get_layout_state()
+            
+            self.project_manager.project_data = project_data
+            
+            # Clean orphaned data
+            cleaned = self.project_manager.validate_and_clean_data()
+            if any(cleaned.values()):
+                print(f"Cleaned orphaned data on exit: {cleaned}")
+            
+            # Save
+            self.project_manager.save_project()
+        
+        event.accept()
     
     def _setup_menu(self) -> None:
         """Setup the menu bar."""
@@ -782,6 +808,10 @@ class MainWindow(QMainWindow):
             data.reference_edge_color
         )
         
+        # Load layout state
+        if data.dock_layout:
+            self.project_dock.set_layout_state(data.dock_layout)
+        
         self.setWindowTitle(f"ResearchFlow - {self.project_manager.current_project_name}")
     
     # --- New V1.2.0 Handlers ---
@@ -849,22 +879,26 @@ class MainWindow(QMainWindow):
                 "No project is currently open."
             )
             return
-        
+            
         # Update project data from scene
         project_data = self.scene.get_project_data()
         
-        # Populate V1.2.0 fields from dock/current data
+        # Populate dock fields
         project_data.global_tags = self.project_dock.get_tags()
         project_data.description = self.project_dock.get_description()
         project_data.todos = self.project_dock.get_todos()
         
+        # Preserve colors
         current = self.project_manager.project_data
         project_data.pipeline_edge_color = current.pipeline_edge_color
         project_data.reference_edge_color = current.reference_edge_color
         
+        # Save layout state
+        project_data.dock_layout = self.project_dock.get_layout_state()
+        
         self.project_manager.project_data = project_data
         
-        # Validate and clean data before saving
+        # Validate and clean
         cleaned = self.project_manager.validate_and_clean_data()
         if any(cleaned.values()):
             print(f"Cleaned orphaned data: {cleaned}")

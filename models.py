@@ -181,6 +181,7 @@ class ProjectData:
     # V1.2.0: Edge color customization
     pipeline_edge_color: str = "#607D8B"  # Gray-blue for pipeline connections
     reference_edge_color: str = "#4CAF50"  # Green for reference connections
+    dock_layout: list[int] = field(default_factory=list)
     
     def to_dict(self) -> dict:
         return {
@@ -191,7 +192,8 @@ class ProjectData:
             "description": self.description,
             "todos": [t.copy() for t in self.todos],
             "pipeline_edge_color": self.pipeline_edge_color,
-            "reference_edge_color": self.reference_edge_color
+            "reference_edge_color": self.reference_edge_color,
+            "dock_layout": self.dock_layout
         }
     
     @classmethod
@@ -204,7 +206,8 @@ class ProjectData:
             description=data.get("description", ""),
             todos=data.get("todos", []),
             pipeline_edge_color=data.get("pipeline_edge_color", "#607D8B"),
-            reference_edge_color=data.get("reference_edge_color", "#4CAF50")
+            reference_edge_color=data.get("reference_edge_color", "#4CAF50"),
+            dock_layout=data.get("dock_layout", [])
         )
     
     def to_json(self, indent: int = 2) -> str:
