@@ -108,6 +108,19 @@ pip install PyQt6 latex2mathml
 python main.py
 ```
 
+### 📦 Building Portable .exe (Optional)
+
+Create a standalone portable executable that runs without Python installed:
+
+```bash
+pip install pyinstaller
+pyinstaller --noconsole --onefile --icon=icon.ico --name="ResearchFlow" main.py
+```
+
+The generated `ResearchFlow.exe` will be in the `dist/` folder. 
+
+> **✅ True Portable**: The `projects/` data folder is automatically created next to the `.exe` file, not in any temp or system folder. Copy the `.exe` and your `projects/` folder anywhere!
+
 ---
 
 ## ⌨️ Keyboard Shortcuts

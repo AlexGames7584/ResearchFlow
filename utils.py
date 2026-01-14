@@ -4,6 +4,7 @@ Handles file operations, project management, and asset copying.
 """
 
 import os
+import sys
 import shutil
 import json
 from pathlib import Path
@@ -15,8 +16,17 @@ from PyQt6.QtGui import QFont
 
 
 def get_app_root() -> Path:
-    """Get the application root directory."""
-    return Path(__file__).parent.resolve()
+    """
+    Get the application root directory.
+    Handles both normal Python execution and PyInstaller bundled .exe.
+    """
+    if getattr(sys, 'frozen', False):
+        # Running as PyInstaller bundle (.exe)
+        # sys.executable is the path to the .exe file
+        return Path(sys.executable).parent.resolve()
+    else:
+        # Running as normal Python script
+        return Path(__file__).parent.resolve()
 
 
 def get_projects_dir() -> Path:
