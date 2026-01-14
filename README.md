@@ -1,182 +1,92 @@
 # ResearchFlow
 
-**Version 1.2.0** | 便携式学术研究工作流管理工具
+**Version 2.0.0** | The Ultimate Academic Research Workflow Manager
 
-ResearchFlow 是一款纯绿色、便携式的桌面应用程序，专为学术研究人员设计，用于管理研究工作流程和文献引用。所有数据均存储在本地项目文件夹中，无需联网，可直接拷贝使用。
-
----
-
-## ✨ 功能特性
-
-### 📊 流程图设计
-- **Pipeline 模块**: 拖拽创建 Input、Process、Decision、Output 四种类型的流程模块
-- **智能连接**: 右键拖动创建连接，支持不同连线颜色区分（Pipeline 内部 / 引用连接）
-- **吸附对齐**: 按住 `Shift` 键拖动节点实现 20px 网格吸附对齐
-- **删除操作**: 选中节点或连线后按 `Delete` 键快速删除
-
-### 🎛️ 项目管理 (V1.2.0)
-- **项目 Dashboard**: 左侧面板集成项目信息管理
-- **项目简介**: 可编辑的项目描述文本框
-- **TODO 清单**: 
-    - 添加待办事项，支持自动换行
-    - 勾选完成（自动添加删除线）
-    - 右键删除事项
-- **全局配色**: 一键自定义 Pipeline 和 Reference 连接线的颜色
-- **标签管理**: 创建、重命名、拖拽分配标签
-
-### 📄 文献管理
-- **导入 Markdown**: 拖放 `.md` 文件到画布创建文献引用节点
-- **Markdown 预览**: 双击文献节点可展开查看完整内容
-- **LaTeX 公式支持**: 自动渲染 `$...$` 行内公式和 `$$...$$` 块级公式，支持右侧公式编号
-
-### 📝 Snippet 系统
-- **文本 Snippet**: 右键节点添加文本片段
-- **图片 Snippet**: 拖放图片或 Ctrl+V 粘贴剪贴板图片
-- **来源标注**: 每个 Snippet 显示 "From: [论文标题]" 来源标签
-- **管理操作**: 
-    - 选中 Snippet 按 `Delete` 键删除
-    - 选中 Snippet 按 `↑`/`↓` 键快速调整顺序
-
-### 🏷️ 标签系统
-- **全局标签**: 左侧面板创建和管理标签
-- **拖拽分配**: 拖动标签到节点进行标记
-- **点击移除**: 点击节点上的标签可从该节点移除
-- **重命名同步**: 重命名标签后自动同步到所有节点
-
-### 💾 数据管理
-- **自动保存**: 操作后自动保存项目
-- **数据清理**: 保存时自动清理孤立的资源文件
+ResearchFlow is a portable, aesthetically pleasing desktop application designed for academic researchers to manage workflows, literature, and ideas. Built with a focus on modern design and fluid user experience, it features a Notion-like interface, rich interactions, and powerful project management tools.
 
 ---
 
-## 🚀 快速开始
+## ✨ What's New in V2.0.0
 
-### 安装依赖
+### 🎨 Modern UI/UX Overhaul
+- **Apple/Notion-Inspired Design**: Completely redesigned interface with rounded corners, subtle shadows, and a clean, minimalist aesthetic.
+- **Fluid Animations**: "Snappy" hover effects on nodes, smooth sidebar transitions, and refined interactions.
+- **Advanced Connections**: Bezier curves with tangent-correct arrowhead alignment for beautiful, readable flowcharts.
+
+### 🎛️ Enhanced Global Management
+- **Smart Sidebar**: Collapsible project manager that tucks away neatly, accessible via a subtle floating toggle.
+- **Project Dashboard**: Integrated description editor, rich TODO list with strikethrough support, and global tag management.
+- **Theme Customization**: Global settings for pipeline and reference edge colors.
+
+---
+
+## 🚀 Key Features
+
+### 📊 Flow & Design
+- **Pipeline Modules**: Drag-and-drop Input, Process, Decision, and Output modules.
+- **Smart Linking**: Right-click and drag to create smooth Bezier connections.
+- **Snap-to-Grid**: Hold `Shift` while moving nodes for precise 20px grid alignment.
+
+### 📄 Literature & Snippets
+- **Markdown Support**: Drag `.md` files to import papers.
+- **LaTeX Rendering**: Native rendering of inline `$math$` and block `$$math$$` formulas with automatic numbering.
+- **Multimedia Snippets**: Paste images (`Ctrl+V`) or drag them directly onto nodes.
+- **Snippet Management**: Reorder snippets with `↑`/`↓` keys, delete with `Delete`.
+- **Text Snippets**: Add text notes with support for Chinese characters (auto-fallback to Microsoft YaHei).
+
+### 🏷️ Organization
+- **Tag System**: Create, rename, and drag tags onto nodes. Click tags on nodes to remove them.
+- **TODOs**: Integrated task management within your project view.
+
+---
+
+## �️ Quick Start
+
+### Installation
 
 ```bash
 pip install PyQt6 latex2mathml
 ```
 
-### 运行应用
+### Running
 
 ```bash
 python main.py
 ```
 
-### 创建项目
+### Usage Tips
 
-1. 启动应用后在欢迎对话框输入项目名称
-2. 点击 "Create" 创建新项目
-3. 或选择已有项目点击 "Open Selected"
-
----
-
-## 🎮 操作指南
-
-### ⌨️ 通用快捷键
-
-| 按键 | 功能 |
-|------|------|
-| `Delete` | 删除选中的节点、连线或 Snippet |
-| `Shift` + 拖动 | 节点吸附网格对齐 (Snap-to-Grid) |
-| `↑` / `↓` | 上下移动选中的 Snippet |
-
-### 画布操作
-
-| 操作 | 方法 |
-|------|------|
-| **创建模块** | 从顶部工具栏拖拽模块到画布 |
-| **移动节点** | 左键拖动节点 |
-| **选择节点** | 左键点击节点 (支持框选) |
-| **创建连接** | 右键从源节点拖动到目标节点 (>10px) |
-| **画布平移** | 中键拖动 |
-| **画布缩放** | 滚轮滚动 |
-| **导入文献** | 拖放 .md 文件到画布 |
-
-### 节点操作
-
-| 操作 | 方法 |
-|------|------|
-| **编辑信息** | 双击节点头部区域 |
-| **添加 Snippet** | 右键点击节点 → "Add Text Snippet" |
-| **删除节点** | 选中按 `Delete` 或 右键 → "Delete Node" |
-| **添加标签** | 从左侧拖动标签到节点 |
-| **移除标签** | 点击节点上的标签 |
-
-### Snippet 操作
-
-| 操作 | 方法 |
-|------|------|
-| **编辑内容** | 双击 Snippet |
-| **编辑来源** | 双击 Snippet 底部的来源标签 |
-| **调整顺序** | 选中后按 `↑`/`↓` 键 |
-| **删除** | 选中后按 `Delete` 键 |
-| **粘贴图片** | 选中节点后 Ctrl+V |
-
-### 连接线操作
-
-| 操作 | 方法 |
-|------|------|
-| **选择连接** | 左键点击连接线 |
-| **删除连接** | 右键点击连接线 → "Delete Connection" |
-
-### 标签管理
-
-| 操作 | 方法 |
-|------|------|
-| **创建标签** | 左侧输入框输入后按回车或点击 + |
-| **重命名** | 右键标签 → "Rename Tag" |
-| **删除标签** | 右键标签 → "Delete Tag" |
+| Action | Shortcut / Gesture |
+|--------|-------------------|
+| **Delete** | `Delete` key (Nodes, Edges, Snippets) |
+| **Snap Move** | Hold `Shift` + Drag Node |
+| **Reorder Snippets** | `↑` / `↓` keys |
+| **Paste Image** | `Ctrl+V` (with node selected) |
+| **Pan Canvas** | Middle Mouse Button Drag |
+| **Zoom** | Mouse Wheel |
 
 ---
 
-## 📁 项目结构
+## 📁 Project Structure
 
 ```
 ResearchFlow/
-├── main.py              # 应用入口和主窗口
-├── models.py            # 数据模型定义
-├── graphics_items.py    # 自定义图形项
-├── widgets.py           # UI 组件
-├── utils.py             # 工具函数和项目管理
-├── projects/            # 项目数据目录
-│   └── {project_name}/
-│       ├── project_data.json   # 项目配置
-│       └── assets/
-│           ├── papers/         # 导入的 Markdown 文件
-│           └── images/         # 导入的图片
-└── README.md
+├── main.py              # Application Entry & Main Window
+├── models.py            # Data Models (Dataclasses)
+├── graphics_items.py    # Custom QGraphicsItems (Nodes, Edges)
+├── widgets.py           # Custom UI Widgets & Modern Components
+├── utils.py             # Utilities, ModernTheme, ProjectManager
+└── projects/            # Local Data Storage
 ```
 
 ---
 
-## 🔧 技术栈
+## 🔧 Technology
 
 - **Python 3.10+**
-- **PyQt6** - GUI 框架
-- **latex2mathml** - LaTeX 公式渲染 (可选)
+- **PyQt6**
+- **latex2mathml**
 
 ---
 
-## 📋 快捷键
-
-| 快捷键 | 功能 |
-|--------|------|
-| `Ctrl+N` | 新建项目 |
-| `Ctrl+O` | 打开项目 |
-| `Ctrl+S` | 保存项目 |
-| `Ctrl+V` | 粘贴图片到选中节点 |
-| `Ctrl++` | 放大画布 |
-| `Ctrl+-` | 缩小画布 |
-
----
-
-## 📜 许可证
-
-GNU General Public License v3.0
-
----
-
-## 🤝 贡献
-
-欢迎提交 Issue 和 Pull Request！
+*Verified on Windows 10/11.*

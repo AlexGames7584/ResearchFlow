@@ -20,6 +20,8 @@ from PyQt6.QtGui import (
 if TYPE_CHECKING:
     from utils import ProjectManager
 
+from utils import ModernTheme
+
 
 # ============================================================================
 # Welcome Dialog
@@ -243,6 +245,70 @@ class DraggableTagItem(QLabel):
 # ============================================================================
 # Tag Dock Widget
 # ============================================================================
+# ============================================================================
+# Modern Dock Title Bar
+# ============================================================================
+class ModernDockTitleBar(QWidget):
+    """Custom title bar for the Project Dock to match Modern UI."""
+    
+    def __init__(self, dock_widget: QDockWidget):
+        super().__init__(dock_widget)
+        self.dock = dock_widget
+        
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(8)
+        
+        # Title
+        self.title_label = QLabel(self.dock.windowTitle())
+        font = ModernTheme.get_ui_font(10, bold=True)
+        self.title_label.setFont(font)
+        self.title_label.setStyleSheet(f"color: {ModernTheme.TEXT_PRIMARY};")
+        
+        layout.addWidget(self.title_label)
+        layout.addStretch()
+        
+        # Button Style
+        btn_style = f"""
+            QPushButton {{
+                background: transparent;
+                color: {ModernTheme.TEXT_SECONDARY};
+                border: none;
+                border-radius: 4px;
+                font-weight: bold;
+                font-size: 14px;
+            }}
+            QPushButton:hover {{
+                background: {ModernTheme.BG_TERTIARY};
+                color: {ModernTheme.ACCENT_COLOR};
+            }}
+        """
+        
+        # Helper to create buttons
+        def create_btn(text, tooltip, callback):
+            btn = QPushButton(text)
+            btn.setFixedSize(24, 24)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setToolTip(tooltip)
+            btn.clicked.connect(callback)
+            btn.setStyleSheet(btn_style)
+            layout.addWidget(btn)
+            return btn
+            
+        # Float Button (Visual toggle)
+        self.float_btn = create_btn("❐", "Float/Dock", self._toggle_float)
+        
+        # Close Button
+        self.close_btn = create_btn("×", "Close", self.dock.close)
+        
+    def _toggle_float(self):
+        self.dock.setFloating(not self.dock.isFloating())
+        
+    def mouseDoubleClickEvent(self, event):
+        # Double click to toggle float behaves like native title bar
+        self._toggle_float()
+
+
 class ProjectDockWidget(QDockWidget):
     """
     Project management dock containing:
@@ -264,6 +330,7 @@ class ProjectDockWidget(QDockWidget):
     
     def __init__(self, parent=None):
         super().__init__("Project Manager", parent)
+        self.setTitleBarWidget(ModernDockTitleBar(self))
         self.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
         self.setMinimumWidth(250)
         

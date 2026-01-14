@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import Optional
 
 from models import ProjectData
+from PyQt6.QtGui import QFont
 
 
 def get_app_root() -> Path:
@@ -334,33 +335,32 @@ class ProjectManager:
     
     def validate_and_clean_data(self) -> dict[str, int]:
         """
-        Validate project data and remove inconsistencies:
-        - Remove edges referencing non-existent nodes
-        - Remove orphaned asset files
-        Returns dict with counts of cleaned items.
+        Validate project data and clean up any inconsistencies.
+        Returns a dict with counts of removed items.
+        
+        1. Remove edges that reference non-existent nodes.
+        2. Remove orphaned assets (files not referenced by any node).
         """
-        if not self.project_data:
+        if not self.is_project_open:
             return {}
+            
+        stats = {"edges_removed": 0, "assets_removed": 0}
         
-        cleaned = {'edges': 0, 'papers': 0, 'images': 0}
+        # 1. Validate Edges
+        valid_node_ids = {n.id for n in self.project_data.nodes}
+        valid_edges = []
+        for edge in self.project_data.edges:
+            if edge.source_id in valid_node_ids and edge.target_id in valid_node_ids:
+                valid_edges.append(edge)
+            else:
+                stats["edges_removed"] += 1
+        self.project_data.edges = valid_edges
         
-        # Get valid node IDs
-        valid_node_ids = {node.id for node in self.project_data.nodes}
+        # 2. Cleanup Orphaned Assets
+        removed_assets = self.cleanup_orphaned_assets()
+        stats["assets_removed"] = sum(removed_assets.values())
         
-        # Remove invalid edges
-        original_edge_count = len(self.project_data.edges)
-        self.project_data.edges = [
-            edge for edge in self.project_data.edges
-            if edge.source_id in valid_node_ids and edge.target_id in valid_node_ids
-        ]
-        cleaned['edges'] = original_edge_count - len(self.project_data.edges)
-        
-        # Clean orphaned assets
-        asset_cleanup = self.cleanup_orphaned_assets()
-        cleaned['papers'] = asset_cleanup['papers']
-        cleaned['images'] = asset_cleanup['images']
-        
-        return cleaned
+        return stats
     
     def delete_project(self, name: str) -> bool:
         """
@@ -375,9 +375,224 @@ class ProjectManager:
         try:
             shutil.rmtree(project_path)
             return True
-        except IOError as e:
+        except Exception as e:
             print(f"Error deleting project: {e}")
             return False
+
+
+class ModernTheme:
+    """
+    Apple/Notion-inspired design system.
+    """
+    
+    # Color Palette
+    BG_PRIMARY = "#FFFFFF"      # Pure white background
+    BG_SECONDARY = "#F7F7F5"    # Unified secondary background (Sidebar/Canvas)
+    BG_TERTIARY = "#EBEBEB"     # Hover states
+    
+    TEXT_PRIMARY = "#37352F"    # Notion Black
+    TEXT_SECONDARY = "#787774"  # Notion Gray
+    TEXT_INVERTED = "#FFFFFF"
+    
+    ACCENT_COLOR = "#2EAADC"    # Apple Blue
+    ACCENT_HOVER = "#1B8FBf"
+    
+    BORDER_LIGHT = "#E0E0E0"
+    BORDER_FOCUS = "rgba(46, 170, 220, 0.4)"
+    
+    SHADOW_LIGHT = "0px 1px 3px rgba(0, 0, 0, 0.05)"
+    SHADOW_MEDIUM = "0px 4px 12px rgba(0, 0, 0, 0.08)"
+    
+    FONT_FAMILY = '"Segoe UI", "Microsoft YaHei", "Roboto", sans-serif'
+    
+    @staticmethod
+    def get_ui_font(size: int = 10, bold: bool = False) -> QFont:
+        """Get the standardized UI font with proper Chinese support."""
+        # "Microsoft YaHei UI" is the safest bet for mixed English/Chinese on Windows
+        font = QFont("Microsoft YaHei UI", size)
+        if bold:
+            font.setWeight(QFont.Weight.Bold)
+        font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
+        return font
+
+    @staticmethod
+    def get_stylesheet() -> str:
+        return f"""
+        /* Global Reset */
+        QWidget {{
+            font-family: {ModernTheme.FONT_FAMILY};
+            font-size: 14px;
+            color: {ModernTheme.TEXT_PRIMARY};
+            outline: none;
+        }}
+        
+        /* Main Window & Dock */
+        QMainWindow, QDockWidget {{
+            background-color: {ModernTheme.BG_SECONDARY};
+            border: none;
+        }}
+        
+        QDockWidget::title {{
+            background: {ModernTheme.BG_SECONDARY};
+            padding: 12px;
+            font-weight: bold;
+            color: {ModernTheme.TEXT_PRIMARY};
+        }}
+        
+        /* Graphics View (Canvas) */
+        QGraphicsView {{
+            border: none;
+            background-color: {ModernTheme.BG_SECONDARY};
+        }}
+        
+        /* Buttons */
+        QPushButton {{
+            background-color: white;
+            border: 1px solid {ModernTheme.BORDER_LIGHT};
+            border-radius: 6px;
+            padding: 6px 12px;
+            font-weight: 500;
+        }}
+        QPushButton:hover {{
+            background-color: {ModernTheme.BG_SECONDARY};
+            border-color: #D0D0D0;
+        }}
+        QPushButton:pressed {{
+            background-color: {ModernTheme.BG_TERTIARY};
+            padding-top: 7px; /* Press effect */
+            padding-bottom: 5px;
+        }}
+        
+        /* Inputs */
+        QLineEdit, QTextEdit, QPlainTextEdit {{
+            background-color: white;
+            border: 1px solid {ModernTheme.BORDER_LIGHT};
+            border-radius: 6px;
+            padding: 8px;
+            selection-background-color: {ModernTheme.ACCENT_COLOR};
+            selection-color: white;
+        }}
+        QLineEdit:focus, QTextEdit:focus {{
+            border: 1px solid {ModernTheme.ACCENT_COLOR};
+        }}
+        
+        /* List Widget (TODOs) */
+        QListWidget {{
+            background-color: transparent;
+            border: none;
+            outline: none;
+        }}
+        QListWidget::item {{
+            padding: 8px;
+            border-radius: 4px;
+            margin-bottom: 2px;
+        }}
+        QListWidget::item:hover {{
+            background-color: rgba(0, 0, 0, 0.03);
+        }}
+        QListWidget::item:selected {{
+            background-color: rgba(46, 170, 220, 0.1);
+            color: {ModernTheme.TEXT_PRIMARY};
+        }}
+        
+        /* Checkbox */
+        QCheckBox {{
+            spacing: 8px;
+        }}
+        QCheckBox::indicator {{
+            width: 18px;
+            height: 18px;
+            border-radius: 4px;
+            border: 1px solid #D0D0D0;
+            background: white;
+        }}
+        QCheckBox::indicator:hover {{
+            border-color: {ModernTheme.ACCENT_COLOR};
+        }}
+        QCheckBox::indicator:checked {{
+            background-color: {ModernTheme.ACCENT_COLOR};
+            border-color: {ModernTheme.ACCENT_COLOR};
+        }}
+        
+        /* Context Menu */
+        QMenu {{
+            background-color: white;
+            border: 1px solid {ModernTheme.BORDER_LIGHT};
+            border-radius: 8px;
+            padding: 6px;
+        }}
+        QMenu::item {{
+            padding: 6px 24px 6px 12px;
+            border-radius: 4px;
+        }}
+        QMenu::item:selected {{
+            background-color: {ModernTheme.ACCENT_COLOR};
+            color: white;
+        }}
+        
+        /* Scrollbar */
+        QScrollBar:vertical {{
+            border: none;
+            background: transparent;
+            width: 10px;
+            margin: 0;
+        }}
+        QScrollBar::handle:vertical {{
+            background: #D0D0D0;
+            min-height: 30px;
+            border-radius: 5px;
+            margin: 2px;
+        }}
+        QScrollBar::handle:vertical:hover {{
+            background: #A0A0A0;
+        }}
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+            height: 0px;
+        }}
+        
+        /* GroupBox */
+        QGroupBox {{
+            border: none;
+            font-weight: bold;
+            font-size: 12px;
+            color: {ModernTheme.TEXT_SECONDARY};
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-top: 20px;
+        }}
+        QGroupBox::title {{
+            subcontrol-origin: margin;
+            subcontrol-position: top left;
+            padding: 0 5px;
+        }}
+        
+        /* ToolTip */
+        QToolTip {{
+            border: 1px solid {ModernTheme.BORDER_LIGHT};
+            background-color: white;
+            color: {ModernTheme.TEXT_PRIMARY};
+            padding: 4px;
+            border-radius: 4px;
+            opacity: 200;
+        }}
+        
+        /* Sidebar Toggle Button */
+        QPushButton#SidebarToggle {{
+            background-color: rgba(255, 255, 255, 0.9);
+            border: 1px solid {ModernTheme.BORDER_LIGHT};
+            border-left: none;
+            border-top-right-radius: 8px;
+            border-bottom-right-radius: 8px;
+            color: {ModernTheme.TEXT_SECONDARY};
+            font-size: 16px;
+            padding: 0px;
+            margin: 0px;
+        }}
+        QPushButton#SidebarToggle:hover {{
+            background-color: {ModernTheme.BG_TERTIARY};
+            color: {ModernTheme.ACCENT_COLOR};
+        }}
+        """
 
 
 def extract_title_from_filename(filename: str) -> str:

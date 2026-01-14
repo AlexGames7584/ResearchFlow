@@ -12,7 +12,7 @@ from datetime import datetime
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QGraphicsScene, QGraphicsView,
     QVBoxLayout, QHBoxLayout, QWidget, QToolBar, QStatusBar,
-    QFileDialog, QMessageBox, QMenu
+    QFileDialog, QMessageBox, QMenu, QPushButton
 )
 from PyQt6.QtCore import Qt, QPointF, QRectF, QMimeData, QByteArray, QBuffer
 from PyQt6.QtGui import (
@@ -24,7 +24,7 @@ from models import (
     ProjectData, NodeData, NodeMetadata, Position, EdgeData, Snippet,
     generate_uuid
 )
-from utils import ProjectManager, extract_title_from_filename, get_app_root
+from utils import ProjectManager, extract_title_from_filename, get_app_root, ModernTheme
 from graphics_items import (
     BaseNodeItem, PipelineModuleItem, ReferenceNodeItem, EdgeItem,
     TempConnectionLine, Colors, SnippetItem
@@ -622,6 +622,30 @@ class MainWindow(QMainWindow):
         self.project_dock.edge_color_changed.connect(self._on_edge_color_changed)
         
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.project_dock)
+        
+        # Sidebar Toggle Button
+        self.sidebar_toggle = QPushButton("›", self)
+        self.sidebar_toggle.setObjectName("SidebarToggle")
+        self.sidebar_toggle.setFixedSize(24, 48)
+        self.sidebar_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.sidebar_toggle.hide()
+        self.sidebar_toggle.clicked.connect(self.project_dock.show)
+        
+        # Handle visibility
+        self.project_dock.visibilityChanged.connect(self._on_dock_visibility_changed)
+    
+    def _on_dock_visibility_changed(self, visible: bool) -> None:
+        self.sidebar_toggle.setVisible(not visible)
+        if not visible:
+            self.sidebar_toggle.raise_()
+            
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        # Position toggle button at center left
+        if hasattr(self, 'sidebar_toggle'):
+            y = (self.height() - self.sidebar_toggle.height()) // 2
+            self.sidebar_toggle.move(0, y)
+            self.sidebar_toggle.raise_()
     
     def _setup_menu(self) -> None:
         """Setup the menu bar."""
@@ -891,7 +915,7 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self, "About ResearchFlow",
             "<h2>ResearchFlow</h2>"
-            "<p>Version 1.2.0</p>"
+            "<p>Version 2.0.0</p>"
             "<p>A portable research management tool for academics.</p>"
             "<p>Built with Python and PyQt6.</p>"
             "<hr>"
@@ -962,13 +986,9 @@ def main():
     projects_dir.mkdir(exist_ok=True)
     
     app = QApplication(sys.argv)
-    app.setStyle("Fusion")
     
-    # Set application palette
-    palette = app.palette()
-    palette.setColor(palette.ColorRole.Window, QColor("#FAFAFA"))
-    palette.setColor(palette.ColorRole.WindowText, QColor("#212121"))
-    app.setPalette(palette)
+    # Apply Modern Theme Stylesheet
+    app.setStyleSheet(ModernTheme.get_stylesheet())
     
     window = MainWindow()
     window.show()

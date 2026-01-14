@@ -20,6 +20,7 @@ from PyQt6.QtGui import (
 )
 
 from models import Snippet, NodeData, NodeMetadata, Position, generate_uuid
+from utils import ModernTheme
 
 if TYPE_CHECKING:
     from PyQt6.QtWidgets import QGraphicsScene
@@ -128,7 +129,7 @@ class SnippetItem(QGraphicsRectItem):
             height = min(scaled.height(), self.IMAGE_MAX_HEIGHT) + 2 * self.TEXT_PADDING
         else:
             # Text snippet - calculate height based on text
-            font = QFont("Segoe UI", 9)
+            font = ModernTheme.get_ui_font(9)
             metrics = QFontMetrics(font)
             text_width = self.SNIPPET_WIDTH - 2 * self.TEXT_PADDING
             text = self.snippet_data.content or "(Empty)"
@@ -160,17 +161,24 @@ class SnippetItem(QGraphicsRectItem):
         # Background
         bg_color = Colors.SNIPPET_IMAGE_BG if self.snippet_data.type == "image" else Colors.SNIPPET_BG
         if self._is_hover:
-            bg_color = bg_color.lighter(110)
+            bg_color = QColor(ModernTheme.BG_TERTIARY)
+        else:
+            bg_color = QColor("white")
+            
+        painter.setBrush(bg_color)
         
-        painter.setBrush(QBrush(bg_color))
-        painter.setPen(QPen(Colors.BORDER, 1))
-        painter.drawRoundedRect(rect, 4, 4)
+        if self.isSelected():
+            painter.setPen(QPen(QColor(ModernTheme.ACCENT_COLOR), 2))
+        else:
+            painter.setPen(QPen(QColor(ModernTheme.BORDER_LIGHT), 1))
+            
+        painter.drawRoundedRect(rect, 8, 8)
         
         y_offset = self.TEXT_PADDING
         
         # Draw source label if present (editable)
         if self.snippet_data.source_label:
-            label_font = QFont("Segoe UI", 8, QFont.Weight.Bold)
+            label_font = ModernTheme.get_ui_font(8, bold=True)
             painter.setFont(label_font)
             painter.setPen(QPen(QColor("#1565C0")))  # Blue color
             label_rect = QRectF(
@@ -202,9 +210,9 @@ class SnippetItem(QGraphicsRectItem):
             painter.drawPixmap(int(content_rect.x()), int(content_rect.y()), scaled)
         else:
             # Draw text
-            text_font = QFont("Segoe UI", 9)
+            text_font = ModernTheme.get_ui_font(9)
             painter.setFont(text_font)
-            painter.setPen(QPen(Colors.TEXT))
+            painter.setPen(QColor(ModernTheme.TEXT_PRIMARY))
             text = self.snippet_data.content or "(Empty - double-click to edit)"
             painter.drawText(
                 content_rect,
@@ -341,7 +349,7 @@ class TagBadge(QGraphicsRectItem):
         self.setAcceptHoverEvents(True)
         
         # Calculate width based on text
-        font = QFont("Segoe UI", 7, QFont.Weight.Bold)
+        font = ModernTheme.get_ui_font(7, bold=True)
         metrics = QFontMetrics(font)
         width = metrics.horizontalAdvance(tag_name) + 2 * self.PADDING
         
@@ -363,7 +371,7 @@ class TagBadge(QGraphicsRectItem):
         painter.drawRoundedRect(rect, 8, 8)
         
         # Draw text
-        font = QFont("Segoe UI", 7, QFont.Weight.Bold)
+        font = ModernTheme.get_ui_font(7, bold=True)
         painter.setFont(font)
         painter.setPen(QPen(Colors.TEXT_LIGHT))
         painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, self.tag_name)
@@ -513,44 +521,77 @@ class BaseNodeItem(QGraphicsRectItem):
         height += 10  # Bottom padding
         
         self.setRect(0, 0, self.NODE_WIDTH, height)
+        # Update transform origin for scaling
+        self.setTransformOriginPoint(self.NODE_WIDTH / 2, height / 2)
     
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: QWidget = None) -> None:
         rect = self.rect()
         
-        # Draw body background
-        body_rect = QRectF(0, self.HEADER_HEIGHT, rect.width(), rect.height() - self.HEADER_HEIGHT)
-        painter.setBrush(QBrush(self._get_body_color()))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawRoundedRect(body_rect, 0, 0)
-        painter.drawRect(QRectF(0, self.HEADER_HEIGHT, rect.width(), 10))  # Overlap
+        # Anti-aliasing
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
         
-        # Draw header
-        header_rect = QRectF(0, 0, rect.width(), self.HEADER_HEIGHT)
-        painter.setBrush(QBrush(self._get_header_color()))
-        painter.drawRoundedRect(header_rect, 8, 8)
-        painter.drawRect(QRectF(0, self.HEADER_HEIGHT - 10, rect.width(), 10))  # Overlap
+        # Shadow (Simple subtle drop shadow)
+        if not self.isSelected():
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(0, 0, 0, 10)) # Very subtle shadow
+            painter.drawRoundedRect(rect.translated(0, 2), 12, 12)
+            painter.setBrush(QColor(0, 0, 0, 5))  # Softer outer shadow
+            painter.drawRoundedRect(rect.translated(0, 4), 12, 12)
         
-        # Draw header text
-        font = QFont("Segoe UI", 11, QFont.Weight.Bold)
+        # Main Card Background
+        bg_color = QColor(ModernTheme.BG_PRIMARY)
+        painter.setBrush(bg_color)
+        
+        # Border
+        if self.isSelected():
+            # Glow effect for selection
+            pen = QPen(QColor(ModernTheme.ACCENT_COLOR), 2)
+        else:
+            pen = QPen(QColor(ModernTheme.BORDER_LIGHT), 1)
+            
+        painter.setPen(pen)
+        painter.drawRoundedRect(rect, 12, 12)
+        
+        # Header Accent Strip (Top)
+        # We use a path to ensure the top corners are clipped correctly
+        path = QPainterPath()
+        path.addRoundedRect(rect, 12, 12)
+        painter.setClipPath(path)
+        
+        # Get color based on node type logic
+        accent_color = QColor(self._get_header_color())
+        # Make accent purely a strip
+        painter.fillRect(QRectF(rect.x(), rect.y(), rect.width(), 6), accent_color)
+        
+        painter.setClipping(False)
+        
+        # Header Text
+        # Use primary font, bold
+        font = ModernTheme.get_ui_font(10, bold=True)
+             
         painter.setFont(font)
-        painter.setPen(QPen(Colors.TEXT_LIGHT))
-        text_rect = QRectF(10, 5, rect.width() - 20, self.HEADER_HEIGHT - 10)
+        painter.setPen(QColor(ModernTheme.TEXT_PRIMARY))
+        
+        # Position text below the accent strip
+        text_rect = QRectF(16, 16, rect.width() - 32, 24)
+        
+        # Draw Title
+        title_text = self._get_header_text()
+        metrics = QFontMetrics(font)
+        elided_text = metrics.elidedText(title_text, Qt.TextElideMode.ElideRight, int(text_rect.width()))
+        
         painter.drawText(
             text_rect,
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-            self._get_header_text()
+            elided_text
         )
         
-        # Draw border
-        border_pen = QPen(Colors.SELECTION if self.isSelected() else Colors.BORDER, 2 if self.isSelected() else 1)
-        painter.setPen(border_pen)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRoundedRect(rect.adjusted(0.5, 0.5, -0.5, -0.5), 8, 8)
-        
-        # Draw connection indicator if this is being used as connection source
+        # Draw connection highlighting
         if self._is_connection_source:
-            painter.setPen(QPen(Colors.CONNECTION_LINE, 3))
-            painter.drawRoundedRect(rect.adjusted(-2, -2, 2, 2), 10, 10)
+            painter.setPen(QPen(QColor(ModernTheme.ACCENT_COLOR), 2, Qt.PenStyle.DashLine))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(rect.adjusted(-4, -4, 4, 4), 14, 14)
     
     def itemChange(self, change: QGraphicsItem.GraphicsItemChange, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
@@ -575,13 +616,18 @@ class BaseNodeItem(QGraphicsRectItem):
     
     def hoverEnterEvent(self, event: QGraphicsSceneHoverEvent) -> None:
         self._is_hover = True
+        self.setZValue(10)
+        self.setScale(1.02)
         self.update()
         super().hoverEnterEvent(event)
     
     def hoverLeaveEvent(self, event: QGraphicsSceneHoverEvent) -> None:
         self._is_hover = False
+        self.setZValue(0)
+        self.setScale(1.0)
         self.update()
         super().hoverLeaveEvent(event)
+
     
     def contextMenuEvent(self, event):
         """Show context menu on right-click."""
@@ -1112,10 +1158,18 @@ class EdgeItem(QGraphicsPathItem):
             target_edge = self._target_edge
             source_edge = self._source_edge
             
-            # Calculate angle from the last segment of the curve
-            dx = target_edge.x() - source_edge.x()
-            dy = target_edge.y() - source_edge.y()
-            angle = math.atan2(dy, dx)
+            # Calculate angle from the path tangent at the end
+            # Using pointAtPercent accounts for the actual curve direction
+            path = self.path()
+            if path.length() > 0:
+                p_end = path.pointAtPercent(1.0)
+                p_pre = path.pointAtPercent(0.95) # 5% back to get tangent
+                angle = math.atan2(p_end.y() - p_pre.y(), p_end.x() - p_pre.x())
+            else:
+                # Fallback
+                dx = target_edge.x() - source_edge.x()
+                dy = target_edge.y() - source_edge.y()
+                angle = math.atan2(dy, dx)
             
             # Arrowhead points
             arrow_p1 = QPointF(
