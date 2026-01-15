@@ -1114,9 +1114,9 @@ class MarkdownViewerDialog(QDialog):
         
         result = latex
         
-        # \pmb{x} -> \mathbf{x} (poor man's bold -> math bold)
-        result = re.sub(r'\\pmb\{([^}]*)\}', r'\\mathbf{\1}', result)
-        result = re.sub(r'\\pmb\s+(\w)', r'\\mathbf{\1}', result)
+        # \pmb{x}, \pmb {x}, \pmb x -> \mathbf{x} (poor man's bold -> math bold)
+        result = re.sub(r'\\pmb\s*\{([^}]*)\}', r'\\mathbf{\1}', result)
+        result = re.sub(r'\\pmb\s+(\\\w+|\w)', r'\\mathbf{\1}', result)
         
         # \tag{n} -> remove (equation tags not needed in viewer)
         # Match all variations: \tag{1}, \tag 1, \tag1, \tag {1}, \tag{something}
@@ -1126,16 +1126,16 @@ class MarkdownViewerDialog(QDialog):
         result = re.sub(r'\\tag\s*\w+\s*$', '', result, flags=re.MULTILINE)
         
         # \boldsymbol{x} -> \mathbf{x}
-        result = re.sub(r'\\boldsymbol\{([^}]*)\}', r'\\mathbf{\1}', result)
+        result = re.sub(r'\\boldsymbol\s*\{([^}]*)\}', r'\\mathbf{\1}', result)
         
         # \bm{x} -> \mathbf{x}
-        result = re.sub(r'\\bm\{([^}]*)\}', r'\\mathbf{\1}', result)
+        result = re.sub(r'\\bm\s*\{([^}]*)\}', r'\\mathbf{\1}', result)
         
         # \text{...} -> \mathrm{...} (more compatible)
-        result = re.sub(r'\\text\{([^}]*)\}', r'\\mathrm{\1}', result)
+        result = re.sub(r'\\text\s*\{([^}]*)\}', r'\\mathrm{\1}', result)
         
         # \operatorname{...} -> \mathrm{...}
-        result = re.sub(r'\\operatorname\{([^}]*)\}', r'\\mathrm{\1}', result)
+        result = re.sub(r'\\operatorname\s*\{([^}]*)\}', r'\\mathrm{\1}', result)
         
         # \mathbb{X} -> X (double-struck, fallback)
         # Keep as is - latex2mathml should handle it
