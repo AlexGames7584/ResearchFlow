@@ -24,12 +24,12 @@ from PyQt6.QtGui import (
 
 from models import (
     ProjectData, NodeData, NodeMetadata, Position, EdgeData, Snippet,
-    generate_uuid
+    GroupData, generate_uuid
 )
 from utils import ProjectManager, extract_title_from_filename, get_app_root, get_resource_path, ModernTheme
 from graphics_items import (
     BaseNodeItem, PipelineModuleItem, ReferenceNodeItem, EdgeItem,
-    TempConnectionLine, Colors, SnippetItem
+    TempConnectionLine, Colors, SnippetItem, GroupItem
 )
 from widgets import (
     WelcomeDialog, ProjectDockWidget, MarkdownViewerDialog, ModulePalette,
@@ -56,6 +56,7 @@ class ResearchScene(QGraphicsScene):
         
         self._nodes: dict[str, BaseNodeItem] = {}
         self._edges: dict[str, EdgeItem] = {}
+        self._groups: dict[str, GroupItem] = {}  # V3.5.0
         self._temp_connection: Optional[TempConnectionLine] = None
         self._connection_source: Optional[BaseNodeItem] = None
         self._suppress_context_menu: bool = False  # Flag to prevent context menu after connection
@@ -107,10 +108,16 @@ class ResearchScene(QGraphicsScene):
         # Connect signals
         node.signals.data_changed.connect(self._on_node_changed)
         node.signals.expand_requested.connect(self._on_expand_requested)
+        node.signals.drag_finished.connect(self.check_node_grouping)
     
     def remove_node(self, node_id: str) -> None:
         """Remove a node and its edges from the scene."""
         if node_id in self._nodes:
+            # Remove from any groups (V3.5.0)
+            for group in self._groups.values():
+                if node_id in group.group_data.node_ids:
+                    group.remove_node(node_id)
+            
             node = self._nodes.pop(node_id)
             
             # Remove connected edges
@@ -232,6 +239,7 @@ class ResearchScene(QGraphicsScene):
         """Clear all items from the scene."""
         self._nodes.clear()
         self._edges.clear()
+        self._groups.clear()
         self.clear()
     
     def get_project_data(self) -> ProjectData:
@@ -251,6 +259,10 @@ class ResearchScene(QGraphicsScene):
             )
             data.edges.append(edge_data)
         
+        # Export groups (V3.5.0)
+        for group in self._groups.values():
+            data.groups.append(group.group_data)
+        
         # Check if pipeline is initialized
         data.pipeline_initialized = any(
             isinstance(n, PipelineModuleItem) for n in self._nodes.values()
@@ -261,6 +273,15 @@ class ResearchScene(QGraphicsScene):
     def load_project_data(self, data: ProjectData) -> None:
         """Import scene state from ProjectData."""
         self.clear_all()
+        
+        # Create groups first (they're rendered below nodes)
+        for group_data in data.groups:
+            group = GroupItem(group_data)
+            self.addItem(group)
+            self._groups[group_data.id] = group
+            self._groups[group_data.id] = group
+            group.signals.moved.connect(self.update_group_nodes_position)
+            group.signals.color_changed.connect(self.update_group_color_visuals)
         
         # Create nodes
         for node_data in data.nodes:
@@ -274,6 +295,72 @@ class ResearchScene(QGraphicsScene):
         # Create edges
         for edge_data in data.edges:
             self.add_edge(edge_data.source_id, edge_data.target_id, edge_data.id)
+            
+        # Initialize group visuals
+        for group in self._groups.values():
+            for node_id in group.group_data.node_ids:
+                if node_id in self._nodes:
+                    self._nodes[node_id].set_group_color(group.group_data.color)
+
+    def check_node_grouping(self, node_id: str, modifiers) -> None:
+        """Handle node grouping logic on drag finish."""
+        node = self._nodes.get(node_id)
+        if not node:
+            return
+            
+        node_rect = node.mapRectToScene(node.boundingRect())
+        node_center = node.mapToScene(node.boundingRect().center())
+        
+        # Check if Ctrl is pressed (Qt.KeyboardModifier.ControlModifier)
+        is_ctrl = bool(modifiers & Qt.KeyboardModifier.ControlModifier)
+        
+        # Find if node is inside any group
+        target_group = None
+        for group in self._groups.values():
+            if group.get_bounds().contains(node_center):
+                target_group = group
+                break
+        
+        # Current memberships
+        current_groups = [g for g in self._groups.values() if g.contains_node(node_id)]
+        
+        if is_ctrl:
+            # Ctrl pressed: Try to add to group or remove if dragged out
+            if target_group:
+                # Add to new group
+                if not target_group.contains_node(node_id):
+                    target_group.add_node(node_id)
+                    target_group.expand_to_fit(node_rect)
+                    node.set_group_color(target_group.group_data.color)
+                
+                # Remove from other groups
+                for g in current_groups:
+                    if g != target_group:
+                        g.remove_node(node_id)
+            else:
+                # Dragged into empty space with Ctrl -> Remove from all groups
+                for g in current_groups:
+                    g.remove_node(node_id)
+                node.set_group_color(None)
+
+    def update_group_nodes_position(self, group_id: str, dx: float, dy: float) -> None:
+        """Move all nodes in the group by delta."""
+        group = self._groups.get(group_id)
+        if not group:
+            return
+            
+        for node_id in group.group_data.node_ids:
+            if node_id in self._nodes:
+                node = self._nodes[node_id]
+                node.moveBy(dx, dy)
+
+    def update_group_color_visuals(self, group_id: str, color: str) -> None:
+        """Update visual color for all nodes in group."""
+        group = self._groups.get(group_id)
+        if not group: return
+        for node_id in group.group_data.node_ids:
+            if node_id in self._nodes:
+                self._nodes[node_id].set_group_color(color)
 
 
 # ============================================================================
@@ -349,6 +436,10 @@ class ResearchView(QGraphicsView):
         for item in selected:
             if isinstance(item, EdgeItem):
                 self._research_scene.remove_edge(item.edge_id)
+            elif isinstance(item, GroupItem):
+                if item.group_data.id in self._research_scene._groups:
+                    del self._research_scene._groups[item.group_data.id]
+                self._research_scene.removeItem(item)
             elif isinstance(item, BaseNodeItem) and not isinstance(item, SnippetItem):
                 # Ensure we don't try to delete ReferenceNodeItem/PipelineModuleItem again if processed differently
                 self._research_scene.remove_node(item.node_data.id)
@@ -500,7 +591,10 @@ class ResearchView(QGraphicsView):
             if text.startswith("module:"):
                 # Drop module from palette
                 module_type = text.split(":", 1)[1]
-                self._create_module(module_type, pos)
+                if module_type == "group":
+                    self._create_group(pos)
+                else:
+                    self._create_module(module_type, pos)
                 event.acceptProposedAction()
                 return
             
@@ -525,6 +619,21 @@ class ResearchView(QGraphicsView):
             return
         
         super().dropEvent(event)
+    
+    def _create_group(self, pos: QPointF) -> None:
+        """Create a new group at position."""
+        group_data = GroupData(
+            position=Position(pos.x(), pos.y()),
+            width=300,
+            height=200,
+            name="New Group"
+        )
+        
+        group = GroupItem(group_data)
+        self._research_scene.addItem(group)
+        self._research_scene._groups[group_data.id] = group
+        group.signals.moved.connect(self._research_scene.update_group_nodes_position)
+        group.signals.color_changed.connect(self._research_scene.update_group_color_visuals)
     
     def _create_module(self, module_type: str, pos: QPointF) -> None:
         """Create a new pipeline module at position."""
@@ -975,6 +1084,11 @@ class MainWindow(QMainWindow):
             # Update project data
             self.project_manager.project_data.module_colors[module_type] = color
             
+            # Update existing groups (V3.5.0)
+            if module_type == "group":
+                for group in self.scene._groups.values():
+                    group.set_color(color)
+            
             # Update existing nodes in the scene
             for node in self.scene._nodes.values():
                 if isinstance(node, PipelineModuleItem) and node.module_type == module_type:
@@ -1101,7 +1215,7 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self, "About ResearchFlow",
             "<h2>ResearchFlow</h2>"
-            "<p>Version 3.1.0</p>"
+            "<p>Version 3.5.0</p>"
             "<p>A portable research management tool for academics.</p>"
             "<p>Built with Python and PyQt6.</p>"
             "<hr>"
@@ -1111,6 +1225,7 @@ class MainWindow(QMainWindow):
             "<li>Reference paper management</li>"
             "<li>Snippet extraction and copying</li>"
             "<li>Tag-based organization</li>"
+            "<li>Node grouping (subgraphs)</li>"
             "</ul>"
         )
     

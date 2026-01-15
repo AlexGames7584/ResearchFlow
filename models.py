@@ -164,6 +164,44 @@ class EdgeData:
 
 
 @dataclass
+class GroupData:
+    """
+    Represents a group (subgraph) that can contain multiple nodes.
+    V3.5.0 feature.
+    """
+    id: str = field(default_factory=generate_uuid)
+    name: str = "Group"
+    position: Position = field(default_factory=Position)
+    width: float = 300.0
+    height: float = 200.0
+    color: str = "#78909C"  # Default blue-grey
+    node_ids: list[str] = field(default_factory=list)  # IDs of contained nodes
+    
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "position": self.position.to_dict(),
+            "width": self.width,
+            "height": self.height,
+            "color": self.color,
+            "node_ids": self.node_ids.copy()
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict) -> "GroupData":
+        return cls(
+            id=data.get("id", generate_uuid()),
+            name=data.get("name", "Group"),
+            position=Position.from_dict(data.get("position", {})),
+            width=data.get("width", 300.0),
+            height=data.get("height", 200.0),
+            color=data.get("color", "#78909C"),
+            node_ids=data.get("node_ids", []).copy()
+        )
+
+
+@dataclass
 class ProjectData:
     """
     Complete project state including all nodes, edges, and tags.
@@ -194,11 +232,15 @@ class ProjectData:
         "output": "#2196F3"
     })
     
+    # Groups (V3.5.0)
+    groups: list[GroupData] = field(default_factory=list)
+    
     def to_dict(self) -> dict:
         return {
             "global_tags": [t.copy() if isinstance(t, dict) else {"name": t, "color": None} for t in self.global_tags],
             "nodes": [n.to_dict() for n in self.nodes],
             "edges": [e.to_dict() for e in self.edges],
+            "groups": [g.to_dict() for g in self.groups],
             "pipeline_initialized": self.pipeline_initialized,
             "description": self.description,
             "todos": [t.copy() for t in self.todos],
@@ -223,6 +265,7 @@ class ProjectData:
             global_tags=tags,
             nodes=[NodeData.from_dict(n) for n in data.get("nodes", [])],
             edges=[EdgeData.from_dict(e) for e in data.get("edges", [])],
+            groups=[GroupData.from_dict(g) for g in data.get("groups", [])],
             pipeline_initialized=data.get("pipeline_initialized", False),
             description=data.get("description", ""),
             todos=data.get("todos", []),

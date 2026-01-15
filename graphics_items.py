@@ -63,6 +63,7 @@ class NodeSignals(QObject):
     connection_started = pyqtSignal(str)  # source_node_id
     connection_completed = pyqtSignal(str, str)  # source_node_id, target_node_id
     data_changed = pyqtSignal(str)  # node_id
+    drag_finished = pyqtSignal(str, object)  # node_id, modifiers (for group logic V3.5.0)
 
 
 # ============================================================================
@@ -532,6 +533,7 @@ class BaseNodeItem(QGraphicsRectItem):
         self._is_hover = False
         self._drag_start_pos: Optional[QPointF] = None
         self._is_connection_source = False
+        self._group_color = None
         
         # Setup flags
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
@@ -548,6 +550,11 @@ class BaseNodeItem(QGraphicsRectItem):
         self._rebuild_tags()
         self._update_rect()
     
+    def set_group_color(self, color: Optional[str]) -> None:
+        """Set the visual group color indicator."""
+        self._group_color = QColor(color) if color else None
+        self.update()
+
     def _get_header_color(self) -> QColor:
         """Override in subclasses to provide header color."""
         return Colors.HEADER_BG
@@ -663,6 +670,8 @@ class BaseNodeItem(QGraphicsRectItem):
         if self.isSelected():
             # Glow effect for selection
             pen = QPen(QColor(ModernTheme.ACCENT_COLOR), 2)
+        elif self._group_color:
+            pen = QPen(self._group_color, 2)
         else:
             pen = QPen(QColor(ModernTheme.BORDER_LIGHT), 1)
             
@@ -743,7 +752,13 @@ class BaseNodeItem(QGraphicsRectItem):
         self.setScale(1.0)
         self.update()
         super().hoverLeaveEvent(event)
-
+    
+    def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        super().mouseReleaseEvent(event)
+        # Notify if drag finished (left button) - for group logic V3.5.0
+        if event.button() == Qt.MouseButton.LeftButton:
+            modifiers = event.modifiers()
+            self.signals.drag_finished.emit(self.node_data.id, modifiers)
     
     def contextMenuEvent(self, event):
         """Show context menu on right-click."""
@@ -1096,7 +1111,12 @@ class ReferenceNodeItem(BaseNodeItem):
             )
         
         # Draw border
-        border_pen = QPen(Colors.SELECTION if self.isSelected() else Colors.BORDER, 2 if self.isSelected() else 1)
+        if self.isSelected():
+            border_pen = QPen(Colors.SELECTION, 2)
+        elif self._group_color:
+            border_pen = QPen(self._group_color, 2)
+        else:
+            border_pen = QPen(Colors.BORDER, 1)
         painter.setPen(border_pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRoundedRect(rect.adjusted(0.5, 0.5, -0.5, -0.5), 8, 8)
@@ -1375,3 +1395,281 @@ class TempConnectionLine(QGraphicsPathItem):
         
         path.cubicTo(ctrl1, ctrl2, self.end_pos)
         self.setPath(path)
+
+
+# ============================================================================
+# Group Item (V3.5.0)
+# ============================================================================
+class GroupSignals(QObject):
+    """Signals emitted by group items."""
+    position_changed = pyqtSignal(str, float, float)  # group_id, x, y
+    moved = pyqtSignal(str, float, float)  # group_id, dx, dy (for relative movement)
+    color_changed = pyqtSignal(str, str)  # group_id, color
+    size_changed = pyqtSignal(str, float, float)  # group_id, width, height
+    name_changed = pyqtSignal(str, str)  # group_id, new_name
+    node_added = pyqtSignal(str, str)  # group_id, node_id
+    node_removed = pyqtSignal(str, str)  # group_id, node_id
+
+
+class GroupItem(QGraphicsRectItem):
+    """
+    A resizable group container that can hold multiple nodes.
+    Features:
+    - Dashed border with semi-transparent background
+    - Resizable via corner handles
+    - Contains node IDs and moves them together
+    - Always rendered below nodes and edges
+    """
+    
+    HANDLE_SIZE = 10
+    MIN_SIZE = 100
+    TITLE_HEIGHT = 24
+    
+    def __init__(self, group_data: "GroupData"):
+        super().__init__()
+        from models import GroupData  # Import here to avoid circular
+        
+        self.group_data = group_data
+        self.signals = GroupSignals()
+        self._color = QColor(group_data.color)
+        self._is_resizing = False
+        self._is_dragging = False  # Track interactive drag
+        self._resize_handle = None  # 'tl', 'tr', 'bl', 'br'
+        self._drag_start_pos = None
+        self._drag_start_rect = None
+        
+        # Setup item properties
+        self.setRect(0, 0, group_data.width, group_data.height)
+        self.setPos(group_data.position.x, group_data.position.y)
+        self.setZValue(-100)  # Always below nodes and edges
+        
+        self.setFlags(
+            QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable |
+            QGraphicsRectItem.GraphicsItemFlag.ItemIsMovable |
+            QGraphicsRectItem.GraphicsItemFlag.ItemSendsGeometryChanges
+        )
+        self.setAcceptHoverEvents(True)
+    
+    def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: QWidget = None) -> None:
+        rect = self.rect()
+        
+        # Semi-transparent background
+        bg_color = QColor(self._color)
+        bg_color.setAlpha(30)
+        painter.setBrush(QBrush(bg_color))
+        
+        # Dashed border
+        border_color = QColor(self._color)
+        border_color.setAlpha(180)
+        pen = QPen(border_color, 2, Qt.PenStyle.DashLine)
+        if self.isSelected():
+            pen.setColor(Colors.SELECTION)
+            pen.setStyle(Qt.PenStyle.SolidLine)
+        painter.setPen(pen)
+        
+        painter.drawRect(rect)
+        
+        # Draw title background
+        title_rect = QRectF(rect.x(), rect.y(), rect.width(), self.TITLE_HEIGHT)
+        title_bg = QColor(self._color)
+        title_bg.setAlpha(60)
+        painter.fillRect(title_rect, title_bg)
+        
+        # Draw title text
+        painter.setPen(QPen(Colors.TEXT))
+        font = ModernTheme.get_ui_font(9, bold=True)
+        painter.setFont(font)
+        text_rect = title_rect.adjusted(8, 0, -8, 0)
+        painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, 
+                        self.group_data.name)
+        
+        # Draw resize handles when selected
+        if self.isSelected():
+            painter.setBrush(QBrush(Colors.SELECTION))
+            painter.setPen(Qt.PenStyle.NoPen)
+            for handle_rect in self._get_handle_rects().values():
+                painter.drawRect(handle_rect)
+    
+    def _get_handle_rects(self) -> dict:
+        """Get resize handle rectangles."""
+        rect = self.rect()
+        hs = self.HANDLE_SIZE
+        return {
+            'tl': QRectF(rect.left() - hs/2, rect.top() - hs/2, hs, hs),
+            'tr': QRectF(rect.right() - hs/2, rect.top() - hs/2, hs, hs),
+            'bl': QRectF(rect.left() - hs/2, rect.bottom() - hs/2, hs, hs),
+            'br': QRectF(rect.right() - hs/2, rect.bottom() - hs/2, hs, hs),
+        }
+    
+    def _get_handle_at(self, pos: QPointF) -> Optional[str]:
+        """Check if position is over a resize handle."""
+        for name, rect in self._get_handle_rects().items():
+            if rect.contains(pos):
+                return name
+        return None
+    
+    def hoverMoveEvent(self, event: QGraphicsSceneHoverEvent) -> None:
+        handle = self._get_handle_at(event.pos())
+        if handle and self.isSelected():
+            if handle in ('tl', 'br'):
+                self.setCursor(QCursor(Qt.CursorShape.SizeFDiagCursor))
+            else:
+                self.setCursor(QCursor(Qt.CursorShape.SizeBDiagCursor))
+        else:
+            self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+        super().hoverMoveEvent(event)
+    
+    def mousePressEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            handle = self._get_handle_at(event.pos())
+            if handle and self.isSelected():
+                self._is_resizing = True
+                self._resize_handle = handle
+                self._drag_start_pos = event.scenePos()
+                self._drag_start_rect = self.rect()
+                event.accept()
+                return
+            else:
+                self._is_dragging = True
+        super().mousePressEvent(event)
+    
+    def mouseMoveEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        if self._is_resizing and self._resize_handle:
+            delta = event.scenePos() - self._drag_start_pos
+            new_rect = QRectF(self._drag_start_rect)
+            
+            if 'l' in self._resize_handle:
+                new_left = new_rect.left() + delta.x()
+                if new_rect.right() - new_left >= self.MIN_SIZE:
+                    new_rect.setLeft(new_left)
+            if 'r' in self._resize_handle:
+                new_right = new_rect.right() + delta.x()
+                if new_right - new_rect.left() >= self.MIN_SIZE:
+                    new_rect.setRight(new_right)
+            if 't' in self._resize_handle:
+                new_top = new_rect.top() + delta.y()
+                if new_rect.bottom() - new_top >= self.MIN_SIZE:
+                    new_rect.setTop(new_top)
+            if 'b' in self._resize_handle:
+                new_bottom = new_rect.bottom() + delta.y()
+                if new_bottom - new_rect.top() >= self.MIN_SIZE:
+                    new_rect.setBottom(new_bottom)
+            
+            # Apply the new rect
+            self.prepareGeometryChange()
+            self.setRect(new_rect.normalized())
+            self.update()
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+    
+    def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        self._is_dragging = False
+        if self._is_resizing:
+            self._is_resizing = False
+            self._resize_handle = None
+            # Update data
+            rect = self.rect()
+            self.group_data.width = rect.width()
+            self.group_data.height = rect.height()
+            # Adjust position if top-left moved
+            self.group_data.position.x = self.pos().x() + rect.x()
+            self.group_data.position.y = self.pos().y() + rect.y()
+            self.signals.size_changed.emit(self.group_data.id, rect.width(), rect.height())
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+    
+    def mouseDoubleClickEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        """Double-click to edit group name."""
+        if event.pos().y() < self.TITLE_HEIGHT:
+            text, ok = QInputDialog.getText(
+                None, "Edit Group Name",
+                "Group Name:",
+                QLineEdit.EchoMode.Normal,
+                self.group_data.name
+            )
+            if ok and text:
+                self.group_data.name = text
+                self.update()
+                self.signals.name_changed.emit(self.group_data.id, text)
+        super().mouseDoubleClickEvent(event)
+    
+    def contextMenuEvent(self, event) -> None:
+        """Show context menu on right-click."""
+        from PyQt6.QtWidgets import QMenu, QColorDialog
+        menu = QMenu()
+        
+        change_color_action = menu.addAction("Change Color...")
+        
+        action = menu.exec(event.screenPos())
+        
+        if action == change_color_action:
+            color = QColorDialog.getColor(self._color, None, "Choose Group Color")
+            if color.isValid():
+                self.set_color(color.name())
+        
+    def itemChange(self, change: QGraphicsRectItem.GraphicsItemChange, value):
+        if change == QGraphicsRectItem.GraphicsItemChange.ItemPositionChange and self._is_dragging:
+            # Calculate delta and emit moved signal
+            new_pos = value
+            old_pos = self.pos()
+            dx = new_pos.x() - old_pos.x()
+            dy = new_pos.y() - old_pos.y()
+            if dx != 0 or dy != 0:
+                self.signals.moved.emit(self.group_data.id, dx, dy)
+                
+        if change == QGraphicsRectItem.GraphicsItemChange.ItemPositionHasChanged:
+            pos = value
+            self.group_data.position.x = pos.x()
+            self.group_data.position.y = pos.y()
+            self.signals.position_changed.emit(self.group_data.id, pos.x(), pos.y())
+        return super().itemChange(change, value)
+    
+    def set_color(self, color: str) -> None:
+        """Set the group color."""
+        self._color = QColor(color)
+        self.group_data.color = color
+        self.update()
+        self.signals.color_changed.emit(self.group_data.id, color)
+    
+    def get_bounds(self) -> QRectF:
+        """Get the bounding rectangle in scene coordinates."""
+        return self.mapRectToScene(self.rect())
+    
+    def contains_node(self, node_id: str) -> bool:
+        """Check if a node is in this group."""
+        return node_id in self.group_data.node_ids
+    
+    def add_node(self, node_id: str) -> None:
+        """Add a node to this group."""
+        if node_id not in self.group_data.node_ids:
+            self.group_data.node_ids.append(node_id)
+            self.signals.node_added.emit(self.group_data.id, node_id)
+    
+    def remove_node(self, node_id: str) -> None:
+        """Remove a node from this group."""
+        if node_id in self.group_data.node_ids:
+            self.group_data.node_ids.remove(node_id)
+            self.signals.node_removed.emit(self.group_data.id, node_id)
+    
+    def expand_to_fit(self, node_rect: QRectF, padding: float = 20) -> None:
+        """Expand the group to fit a node rectangle (in scene coords)."""
+        group_rect = self.get_bounds()
+        
+        # Calculate needed expansion
+        new_left = min(group_rect.left(), node_rect.left() - padding)
+        new_top = min(group_rect.top(), node_rect.top() - padding - self.TITLE_HEIGHT)
+        new_right = max(group_rect.right(), node_rect.right() + padding)
+        new_bottom = max(group_rect.bottom(), node_rect.bottom() + padding)
+        
+        # Apply new bounds
+        self.setPos(new_left, new_top)
+        self.setRect(0, 0, new_right - new_left, new_bottom - new_top)
+        
+        # Update data
+        self.group_data.position.x = new_left
+        self.group_data.position.y = new_top
+        self.group_data.width = new_right - new_left
+        self.group_data.height = new_bottom - new_top
+

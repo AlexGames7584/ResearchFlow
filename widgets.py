@@ -592,17 +592,61 @@ class ProjectDockWidget(QDockWidget):
         self.todo_changed.emit()
     
     def _show_todo_menu(self, pos: QPoint) -> None:
+        """Show context menu for todo items."""
         item = self.todo_list.itemAt(pos)
         if not item:
             return
             
         menu = QMenu(self)
+        edit_action = menu.addAction("Edit...")
+        
+        menu.addSeparator()
+        
+        move_up_action = menu.addAction("Move Up")
+        move_down_action = menu.addAction("Move Down")
+        
+        menu.addSeparator()
+        
         delete_action = menu.addAction("Delete Task")
+        
         action = menu.exec(self.todo_list.mapToGlobal(pos))
         
         if action == delete_action:
             row = self.todo_list.row(item)
             self.todo_list.takeItem(row)
+            self.todo_changed.emit()
+        elif action == edit_action:
+            self._edit_todo(item)
+        elif action == move_up_action:
+            self._move_todo_up(item)
+        elif action == move_down_action:
+            self._move_todo_down(item)
+
+    def _edit_todo(self, item: QListWidgetItem) -> None:
+        """Edit todo item text."""
+        text, ok = QInputDialog.getText(
+            self, "Edit Task", "Task Description:", QLineEdit.EchoMode.Normal, item.text()
+        )
+        if ok and text.strip():
+            item.setText(text.strip())
+            self.todo_changed.emit()
+            
+    def _move_todo_up(self, item: QListWidgetItem) -> None:
+        """Move todo item up."""
+        row = self.todo_list.row(item)
+        if row > 0:
+            current_item = self.todo_list.takeItem(row)
+            self.todo_list.insertItem(row - 1, current_item)
+            self.todo_list.setCurrentItem(current_item)
+            self.todo_changed.emit()
+            
+    def _move_todo_down(self, item: QListWidgetItem) -> None:
+        """Move todo item down."""
+        row = self.todo_list.row(item)
+        if row < self.todo_list.count() - 1:
+            current_item = self.todo_list.takeItem(row)
+            self.todo_list.insertItem(row + 1, current_item)
+            self.todo_list.setCurrentItem(current_item)
             self.todo_changed.emit()
     
     def _add_tag(self) -> None:
@@ -1199,6 +1243,81 @@ class ModulePaletteItem(QLabel):
         super().mouseReleaseEvent(event)
 
 
+class GroupPaletteItem(QLabel):
+    """A draggable group module with dashed border styling."""
+    
+    color_changed = pyqtSignal(str, str)  # module_type, new_color
+    
+    def __init__(self, parent=None):
+        super().__init__("Group", parent)
+        self.module_type = "group"
+        self._color = QColor("#78909C")  # Blue-grey default
+        
+        self.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
+        self.setFixedHeight(28)
+        self.setMinimumWidth(60)
+        self.setContentsMargins(1, 1, 1, 1)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._show_context_menu)
+        
+        self._update_style()
+    
+    def set_color(self, color: str) -> None:
+        self._color = QColor(color)
+        self._update_style()
+    
+    def get_color(self) -> str:
+        return self._color.name()
+    
+    def _update_style(self) -> None:
+        # Dashed border with semi-transparent background
+        bg_color = QColor(self._color)
+        bg_color.setAlpha(50)
+        self.setStyleSheet(f"""
+            QLabel {{
+                background-color: rgba({bg_color.red()}, {bg_color.green()}, {bg_color.blue()}, 50);
+                color: {self._color.darker(120).name()};
+                border: 2px dashed {self._color.name()};
+                padding: 3px 8px;
+            }}
+            QLabel:hover {{
+                background-color: rgba({bg_color.red()}, {bg_color.green()}, {bg_color.blue()}, 80);
+            }}
+        """)
+    
+    def _show_context_menu(self, pos) -> None:
+        menu = QMenu(self)
+        change_color = menu.addAction("Change Color...")
+        action = menu.exec(self.mapToGlobal(pos))
+        
+        if action == change_color:
+            color = QColorDialog.getColor(self._color, self, "Choose color for 'Group'")
+            if color.isValid():
+                self._color = color
+                self._update_style()
+                self.color_changed.emit(self.module_type, color.name())
+    
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+        super().mousePressEvent(event)
+    
+    def mouseMoveEvent(self, event) -> None:
+        if event.buttons() & Qt.MouseButton.LeftButton:
+            drag = QDrag(self)
+            mime = QMimeData()
+            mime.setText("module:group")
+            drag.setMimeData(mime)
+            drag.exec(Qt.DropAction.CopyAction)
+        super().mouseMoveEvent(event)
+    
+    def mouseReleaseEvent(self, event) -> None:
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
+        super().mouseReleaseEvent(event)
+
+
 class ModulePalette(QWidget):
     """Palette of draggable module shapes with customizable colors."""
     
@@ -1240,6 +1359,16 @@ class ModulePalette(QWidget):
             self._items[module_type] = item
             layout.addWidget(item)
         
+        # Add separator
+        separator = QLabel("|")
+        separator.setStyleSheet("color: #ccc; margin: 0 5px;")
+        layout.addWidget(separator)
+        
+        # Group module (special styling)
+        self.group_item = GroupPaletteItem()
+        self.group_item.color_changed.connect(self._on_item_color_changed)
+        layout.addWidget(self.group_item)
+        
         layout.addStretch()
         
         # Help text
@@ -1256,13 +1385,19 @@ class ModulePalette(QWidget):
         for module_type, color in colors.items():
             if module_type in self._items:
                 self._items[module_type].set_color(color)
+            elif module_type == "group":
+                self.group_item.set_color(color)
     
     def get_colors(self) -> dict:
         """Get current module colors."""
-        return {mt: item.get_color() for mt, item in self._items.items()}
+        colors = {mt: item.get_color() for mt, item in self._items.items()}
+        colors["group"] = self.group_item.get_color()
+        return colors
     
     def get_color(self, module_type: str) -> str:
         """Get color for a specific module type."""
+        if module_type == "group":
+            return self.group_item.get_color()
         if module_type in self._items:
             return self._items[module_type].get_color()
         return self.DEFAULT_COLORS.get(module_type, "#607D8B")

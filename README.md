@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-3.1.0-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-3.5.0-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/python-3.10+-green.svg" alt="Python">
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey.svg" alt="Platform">
   <img src="https://img.shields.io/badge/license-MIT-orange.svg" alt="License">
@@ -17,10 +17,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/thefamer/ResearchFlow/releases"><strong>📥 Download Pre-built .exe from Releases</strong></a>
+  <a href="https://github.com/thefamer/ResearchFlow/releases"><strong>📥 Download v3.5.0 .exe from Releases</strong></a>
 </p>
 
-> **💡 Just want it to work?** Pre-built **portable standalone .exe** is available in [Releases](https://github.com/thefamer/ResearchFlow/releases) – download and run, no Python required!
+> **💡 Just want it to work?** v3.5.0 **portable standalone .exe** is available in [Releases](https://github.com/thefamer/ResearchFlow/releases) – download and run, no Python required!
 
 ---
 
@@ -28,23 +28,26 @@ ResearchFlow is a portable, aesthetically pleasing desktop application designed 
 
 ---
 
-## ✨ What's New in V3.1.0
+## ✨ What's New in V3.5.0
 
-### 🏷️ Tag Customization
-- **Custom Tag Colors**: Right-click any tag to customize its color. Colors are saved with the project.
-- **Persistent Colors**: Tags no longer reset to random colors when reloading a project.
-- **Tag Reordering**: Right-click to move tags up or down in the list.
+### 📦 Node Grouping (Subgraphs)
+- **Visual Grouping**: Drag a "Group" module from the toolbar to create a container for your nodes.
+- **Auto-Containment**: Hold `Ctrl` while dragging a node into a group to add it. The group expands to fit.
+- **Group Movement**: Dragging the group moves all nodes inside it.
+- **Detachment**: Hold `Ctrl` while dragging a node out of a group to remove it.
+- **Customization**: Resize groups via corner handles, double-click to rename, and right-click to change color.
 
-### 🎨 Module Color Customization
-- **Custom Module Colors**: Right-click modules in the toolbar (Input, Process, Decision, Output) to customize their colors.
-- **Real-time Sync**: Color changes instantly apply to all matching nodes in the canvas.
-- **Saved per Project**: Module colors are stored in project data.
-
-### 🐛 Bugfixes
-- **LaTeX Rendering**: Fixed LaTeX formulas not rendering in packaged .exe builds.
+### ✅ TODO List Enhancements
+- **Task Management**: Right-click any task in the TODO list to **Edit**, **Move Up**, or **Move Down**.
+- **Intuitive Workflow**: Consistent with tag management, allowing for better prioritization of research tasks.
 
 <details>
-<summary><strong>📜 V3.0.x</strong></summary>
+<summary><strong>📜 Version History</strong></summary>
+
+### V3.1.0
+- **Tag Customization**: Custom colors and reordering for tags.
+- **Module Colors**: Customizable colors for toolbar modules that sync to canvas nodes.
+- **Bugfixes**: Fixed LaTeX rendering in packaged builds.
 
 ### V3.0.1
 - **Clean Exit**: Fixed issue where application process remained running after closing.
