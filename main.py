@@ -680,6 +680,7 @@ class MainWindow(QMainWindow):
         self.project_dock.tag_added.connect(self._on_tag_added)
         self.project_dock.tag_removed.connect(self._on_tag_removed)
         self.project_dock.tag_renamed.connect(self._on_tag_renamed)
+        self.project_dock.tag_color_changed.connect(self._on_tag_color_changed)
         # Project signals
         self.project_dock.description_changed.connect(self._on_description_changed)
         self.project_dock.todo_changed.connect(self._on_todo_changed)
@@ -871,8 +872,9 @@ class MainWindow(QMainWindow):
         toolbar.setMovable(False)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
         
-        palette = ModulePalette()
-        toolbar.addWidget(palette)
+        self.module_palette = ModulePalette()
+        self.module_palette.color_changed.connect(self._on_module_color_changed)
+        toolbar.addWidget(self.module_palette)
     
     def _setup_statusbar(self) -> None:
         """Setup the status bar."""
@@ -936,6 +938,16 @@ class MainWindow(QMainWindow):
         if data.dock_layout:
             self.project_dock.set_layout_state(data.dock_layout)
         
+        # Load module palette colors and apply to existing nodes
+        if data.module_colors:
+            self.module_palette.set_colors(data.module_colors)
+            # Apply colors to already loaded nodes
+            for node in self.scene._nodes.values():
+                if isinstance(node, PipelineModuleItem):
+                    mtype = node.module_type
+                    if mtype in data.module_colors:
+                        node.set_color(data.module_colors[mtype])
+        
         self.setWindowTitle(f"ResearchFlow - {self.project_manager.current_project_name}")
     
     # --- New V1.2.0 Handlers ---
@@ -955,6 +967,19 @@ class MainWindow(QMainWindow):
             self.project_manager.project_data.pipeline_edge_color = pipeline_color
             self.project_manager.project_data.reference_edge_color = reference_color
             self.scene.set_edge_colors(pipeline_color, reference_color)
+            self._auto_save()
+    
+    def _on_module_color_changed(self, module_type: str, color: str) -> None:
+        """Handle module palette color change - update existing nodes."""
+        if self.project_manager.is_project_open:
+            # Update project data
+            self.project_manager.project_data.module_colors[module_type] = color
+            
+            # Update existing nodes in the scene
+            for node in self.scene._nodes.values():
+                if isinstance(node, PipelineModuleItem) and node.module_type == module_type:
+                    node.set_color(color)
+            
             self._auto_save()
     
     def _new_project(self) -> None:
@@ -1020,6 +1045,9 @@ class MainWindow(QMainWindow):
         # Save layout state
         project_data.dock_layout = self.project_dock.get_layout_state()
         
+        # Save module colors
+        project_data.module_colors = self.module_palette.get_colors()
+        
         self.project_manager.project_data = project_data
         
         # Validate and clean
@@ -1073,7 +1101,7 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self, "About ResearchFlow",
             "<h2>ResearchFlow</h2>"
-            "<p>Version 3.0.1</p>"
+            "<p>Version 3.1.0</p>"
             "<p>A portable research management tool for academics.</p>"
             "<p>Built with Python and PyQt6.</p>"
             "<hr>"
@@ -1107,6 +1135,16 @@ class MainWindow(QMainWindow):
                 # Rebuild tag badges to reflect new name
                 node._rebuild_tags()
                 node.update_layout()
+        self._auto_save()
+    
+    def _on_tag_color_changed(self, tag_name: str, color: str) -> None:
+        """Handle tag color change - sync to all nodes."""
+        for node in self.scene._nodes.values():
+            if tag_name in node.node_data.tags:
+                # Update the tag badge color
+                for badge in node._tag_badges:
+                    if badge.tag_name == tag_name:
+                        badge.set_color(color)
         self._auto_save()
     
     def _auto_save(self) -> None:

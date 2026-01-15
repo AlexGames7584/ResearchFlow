@@ -22,6 +22,13 @@ if TYPE_CHECKING:
 
 from utils import ModernTheme
 
+# Import latex2mathml for LaTeX formula rendering
+try:
+    import latex2mathml.converter
+    LATEX2MATHML_AVAILABLE = True
+except ImportError:
+    LATEX2MATHML_AVAILABLE = False
+
 
 # ============================================================================
 # Welcome Dialog
@@ -189,18 +196,22 @@ class WelcomeDialog(QDialog):
 # Draggable Tag Item
 # ============================================================================
 class DraggableTagItem(QLabel):
-    """A tag that can be dragged onto nodes."""
+    """A tag that can be dragged onto nodes, with customizable color."""
     
-    def __init__(self, tag_name: str, parent=None):
+    color_changed = pyqtSignal(str, str)  # tag_name, new_color
+    
+    def __init__(self, tag_name: str, color: str = None, parent=None):
         super().__init__(tag_name, parent)
         self.tag_name = tag_name
-        self._color = self._generate_color(tag_name)
+        self._custom_color = color  # Store user-defined color (hex string or None)
+        self._color = QColor(color) if color else self._generate_color(tag_name)
         
         self.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setCursor(Qt.CursorShape.OpenHandCursor)
-        self.setMinimumHeight(28)
-        self.setContentsMargins(10, 5, 10, 5)
+        self.setFixedHeight(28)  # Use fixed height to prevent compression
+        self.setContentsMargins(1, 1, 1, 1)
+        # Note: Context menu is handled by parent ProjectDockWidget
         
         self._update_style()
     
@@ -209,6 +220,16 @@ class DraggableTagItem(QLabel):
         hash_val = sum(ord(c) for c in text)
         hue = (hash_val * 37) % 360
         return QColor.fromHsl(hue, 200, 120)
+    
+    def set_color(self, color: str) -> None:
+        """Set a custom color for this tag."""
+        self._custom_color = color
+        self._color = QColor(color) if color else self._generate_color(self.tag_name)
+        self._update_style()
+    
+    def get_color(self) -> str:
+        """Get the current color as hex string."""
+        return self._color.name()
     
     def _update_style(self) -> None:
         self.setStyleSheet(f"""
@@ -313,7 +334,8 @@ class ProjectDockWidget(QDockWidget):
     # Tag signals
     tag_added = pyqtSignal(str)
     tag_removed = pyqtSignal(str)
-    tag_renamed = pyqtSignal(str, str)
+    tag_renamed = pyqtSignal(str, str)  # old_name, new_name
+    tag_color_changed = pyqtSignal(str, str)  # tag_name, new_color
     
     # UI Signals
     description_changed = pyqtSignal(str)
@@ -328,8 +350,8 @@ class ProjectDockWidget(QDockWidget):
         self.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable)  # No float
         self.setMinimumWidth(250)
         
-        # Data storage
-        self._tags: list[str] = []
+        # Data storage - tags stored as list of {"name": str, "color": str|None}
+        self._tags: list[dict] = []
         self._tag_widgets: list[DraggableTagItem] = []
         self._todos: list[dict] = []
         
@@ -586,12 +608,16 @@ class ProjectDockWidget(QDockWidget):
     def _add_tag(self) -> None:
         """Add a new tag."""
         tag_name = self.tag_input.text().strip()
-        if tag_name and tag_name not in self._tags:
-            self._tags.append(tag_name)
+        # Check if tag name already exists
+        existing_names = [t["name"] for t in self._tags]
+        if tag_name and tag_name not in existing_names:
+            tag_data = {"name": tag_name, "color": None}
+            self._tags.append(tag_data)
             
-            widget = DraggableTagItem(tag_name)
+            widget = DraggableTagItem(tag_name, color=None)
             widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             widget.customContextMenuRequested.connect(lambda pos, w=widget: self._show_tag_menu(w))
+            widget.color_changed.connect(self._on_tag_color_changed)
             
             self._tag_widgets.append(widget)
             # Insert before the stretch
@@ -600,20 +626,76 @@ class ProjectDockWidget(QDockWidget):
             self.tag_input.clear()
             self.tag_added.emit(tag_name)
     
+    def _on_tag_color_changed(self, tag_name: str, color: str) -> None:
+        """Handle tag color change."""
+        for tag_data in self._tags:
+            if tag_data["name"] == tag_name:
+                tag_data["color"] = color
+                break
+    
     def _show_tag_menu(self, widget: DraggableTagItem) -> None:
         """Show context menu for a tag."""
         from PyQt6.QtWidgets import QMenu
         menu = QMenu(self)
         
+        move_up_action = menu.addAction("Move Up")
+        move_down_action = menu.addAction("Move Down")
+        menu.addSeparator()
+        change_color_action = menu.addAction("Change Color...")
         rename_action = menu.addAction("Rename Tag")
         delete_action = menu.addAction("Delete Tag")
         
         action = menu.exec(widget.mapToGlobal(widget.rect().bottomLeft()))
         
-        if action == rename_action:
+        if action == move_up_action:
+            self._move_tag_up(widget)
+        elif action == move_down_action:
+            self._move_tag_down(widget)
+        elif action == change_color_action:
+            color = QColorDialog.getColor(widget._color, self, f"Choose color for '{widget.tag_name}'")
+            if color.isValid():
+                widget._custom_color = color.name()
+                widget._color = color
+                widget._update_style()
+                self._on_tag_color_changed(widget.tag_name, color.name())
+                # Emit signal to sync to nodes on canvas
+                self.tag_color_changed.emit(widget.tag_name, color.name())
+        elif action == rename_action:
             self._rename_tag(widget)
         elif action == delete_action:
             self._remove_tag(widget.tag_name)
+    
+    def _move_tag_up(self, widget: DraggableTagItem) -> None:
+        """Move a tag up in the list."""
+        idx = self._tag_widgets.index(widget)
+        if idx > 0:
+            # Swap in data
+            self._tags[idx], self._tags[idx - 1] = self._tags[idx - 1], self._tags[idx]
+            self._tag_widgets[idx], self._tag_widgets[idx - 1] = self._tag_widgets[idx - 1], self._tag_widgets[idx]
+            # Rebuild layout
+            self._rebuild_tag_layout()
+    
+    def _move_tag_down(self, widget: DraggableTagItem) -> None:
+        """Move a tag down in the list."""
+        idx = self._tag_widgets.index(widget)
+        if idx < len(self._tag_widgets) - 1:
+            # Swap in data
+            self._tags[idx], self._tags[idx + 1] = self._tags[idx + 1], self._tags[idx]
+            self._tag_widgets[idx], self._tag_widgets[idx + 1] = self._tag_widgets[idx + 1], self._tag_widgets[idx]
+            # Rebuild layout
+            self._rebuild_tag_layout()
+    
+    def _rebuild_tag_layout(self) -> None:
+        """Rebuild the tag layout after reordering."""
+        # Remove all widgets from layout (but don't delete them)
+        while self.tags_layout.count() > 0:
+            self.tags_layout.takeAt(0)
+        
+        # Re-add in new order
+        for widget in self._tag_widgets:
+            self.tags_layout.addWidget(widget)
+        
+        self.tags_layout.addStretch()
     
     def _rename_tag(self, widget: DraggableTagItem) -> None:
         """Rename a tag."""
@@ -626,33 +708,40 @@ class ProjectDockWidget(QDockWidget):
         )
         if ok and new_name and new_name != old_name:
             # Update internal list
-            idx = self._tags.index(old_name)
-            self._tags[idx] = new_name
+            for tag_data in self._tags:
+                if tag_data["name"] == old_name:
+                    tag_data["name"] = new_name
+                    break
             
-            # Update widget
+            # Update widget (keep current color)
             widget.tag_name = new_name
             widget.setText(new_name)
-            widget._color = widget._generate_color(new_name)
-            widget._update_style()
+            # Don't regenerate color if custom color was set
+            if not widget._custom_color:
+                widget._color = widget._generate_color(new_name)
+                widget._update_style()
             
             # Emit signal for syncing to nodes
             self.tag_renamed.emit(old_name, new_name)
     
     def _remove_tag(self, tag_name: str) -> None:
         """Remove a tag."""
-        if tag_name in self._tags:
-            self._tags.remove(tag_name)
+        # Find and remove from _tags list
+        for tag_data in self._tags:
+            if tag_data["name"] == tag_name:
+                self._tags.remove(tag_data)
+                break
             
-            for widget in self._tag_widgets:
-                if widget.tag_name == tag_name:
-                    self._tag_widgets.remove(widget)
-                    widget.deleteLater()
-                    break
-            
-            self.tag_removed.emit(tag_name)
+        for widget in self._tag_widgets:
+            if widget.tag_name == tag_name:
+                self._tag_widgets.remove(widget)
+                widget.deleteLater()
+                break
+        
+        self.tag_removed.emit(tag_name)
     
-    def set_tags(self, tags: list[str]) -> None:
-        """Set the tag list (for loading projects)."""
+    def set_tags(self, tags: list[dict]) -> None:
+        """Set the tag list (for loading projects). Tags are dicts with 'name' and 'color'."""
         # Clear existing
         for widget in self._tag_widgets:
             widget.deleteLater()
@@ -660,17 +749,31 @@ class ProjectDockWidget(QDockWidget):
         self._tags.clear()
         
         # Add new tags
-        for tag_name in tags:
-            self._tags.append(tag_name)
-            widget = DraggableTagItem(tag_name)
+        for tag_data in tags:
+            tag_name = tag_data.get("name", "") if isinstance(tag_data, dict) else tag_data
+            tag_color = tag_data.get("color") if isinstance(tag_data, dict) else None
+            
+            if not tag_name:
+                continue
+                
+            self._tags.append({"name": tag_name, "color": tag_color})
+            widget = DraggableTagItem(tag_name, color=tag_color)
             widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             widget.customContextMenuRequested.connect(lambda pos, w=widget: self._show_tag_menu(w))
+            widget.color_changed.connect(self._on_tag_color_changed)
             self._tag_widgets.append(widget)
             self.tags_layout.insertWidget(self.tags_layout.count() - 1, widget)
     
-    def get_tags(self) -> list[str]:
-        """Get the current tag list."""
-        return self._tags.copy()
+    def get_tags(self) -> list[dict]:
+        """Get the current tag list with colors."""
+        # Sync colors from widgets back to data
+        result = []
+        for widget in self._tag_widgets:
+            result.append({
+                "name": widget.tag_name,
+                "color": widget.get_color() if widget._custom_color else None
+            })
+        return result
 
 
 # ============================================================================
@@ -945,18 +1048,16 @@ class MarkdownViewerDialog(QDialog):
         Convert LaTeX formula to MathML for native Qt rendering.
         Returns empty string if conversion fails.
         """
+        if not LATEX2MATHML_AVAILABLE:
+            return ""
+        
         try:
-            from latex2mathml import converter
-            
             # Preprocess LaTeX to handle unsupported commands
             processed = self._preprocess_latex(latex)
             
-            # Convert LaTeX to MathML
-            mathml = converter.convert(processed)
+            # Convert LaTeX to MathML using globally imported module
+            mathml = latex2mathml.converter.convert(processed)
             return mathml
-        except ImportError:
-            # latex2mathml not installed
-            return ""
         except Exception:
             # Conversion failed (invalid LaTeX, etc.)
             return ""
@@ -1024,29 +1125,60 @@ class MarkdownViewerDialog(QDialog):
 # Module Palette (Draggable Shapes)
 # ============================================================================
 class ModulePaletteItem(QLabel):
-    """A draggable module shape for the palette."""
+    """A draggable module shape for the palette with customizable color."""
+    
+    color_changed = pyqtSignal(str, str)  # module_type, new_color
     
     def __init__(self, module_type: str, label: str, color: QColor, parent=None):
         super().__init__(label, parent)
         self.module_type = module_type
         self._color = color
+        self._label = label
         
         self.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setCursor(Qt.CursorShape.OpenHandCursor)
-        self.setFixedSize(80, 30)
+        self.setFixedHeight(28)  # Match tag height
+        self.setMinimumWidth(70)
+        self.setContentsMargins(1, 1, 1, 1)  # Match tag margins
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._show_context_menu)
         
+        self._update_style()
+    
+    def set_color(self, color: str) -> None:
+        """Set the module color."""
+        self._color = QColor(color)
+        self._update_style()
+    
+    def get_color(self) -> str:
+        """Get the current color as hex string."""
+        return self._color.name()
+    
+    def _update_style(self) -> None:
         self.setStyleSheet(f"""
             QLabel {{
-                background-color: {color.name()};
+                background-color: {self._color.name()};
                 color: white;
                 border-radius: 6px;
                 padding: 5px;
             }}
             QLabel:hover {{
-                background-color: {color.darker(110).name()};
+                background-color: {self._color.darker(110).name()};
             }}
         """)
+    
+    def _show_context_menu(self, pos) -> None:
+        menu = QMenu(self)
+        change_color = menu.addAction("Change Color...")
+        action = menu.exec(self.mapToGlobal(pos))
+        
+        if action == change_color:
+            color = QColorDialog.getColor(self._color, self, f"Choose color for '{self._label}'")
+            if color.isValid():
+                self._color = color
+                self._update_style()
+                self.color_changed.emit(self.module_type, color.name())
     
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -1068,10 +1200,20 @@ class ModulePaletteItem(QLabel):
 
 
 class ModulePalette(QWidget):
-    """Palette of draggable module shapes."""
+    """Palette of draggable module shapes with customizable colors."""
+    
+    color_changed = pyqtSignal(str, str)  # module_type, new_color
+    
+    DEFAULT_COLORS = {
+        "input": "#4CAF50",
+        "process": "#9C27B0",
+        "decision": "#FF9800",
+        "output": "#2196F3"
+    }
     
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._items: dict[str, ModulePaletteItem] = {}
         self._setup_ui()
     
     def _setup_ui(self) -> None:
@@ -1085,22 +1227,45 @@ class ModulePalette(QWidget):
         
         # Module types
         modules = [
-            ("input", "Input", QColor("#4CAF50")),
-            ("process", "Process", QColor("#9C27B0")),
-            ("decision", "Decision", QColor("#FF9800")),
-            ("output", "Output", QColor("#2196F3")),
+            ("input", "Input"),
+            ("process", "Process"),
+            ("decision", "Decision"),
+            ("output", "Output"),
         ]
         
-        for module_type, label_text, color in modules:
+        for module_type, label_text in modules:
+            color = QColor(self.DEFAULT_COLORS[module_type])
             item = ModulePaletteItem(module_type, label_text, color)
+            item.color_changed.connect(self._on_item_color_changed)
+            self._items[module_type] = item
             layout.addWidget(item)
         
         layout.addStretch()
         
         # Help text
-        help_label = QLabel("Drag modules to canvas")
+        help_label = QLabel("Drag modules to canvas | Right-click to customize color")
         help_label.setStyleSheet("color: #999; font-style: italic;")
         layout.addWidget(help_label)
+    
+    def _on_item_color_changed(self, module_type: str, color: str) -> None:
+        """Forward color change signal."""
+        self.color_changed.emit(module_type, color)
+    
+    def set_colors(self, colors: dict) -> None:
+        """Set module colors from project data."""
+        for module_type, color in colors.items():
+            if module_type in self._items:
+                self._items[module_type].set_color(color)
+    
+    def get_colors(self) -> dict:
+        """Get current module colors."""
+        return {mt: item.get_color() for mt, item in self._items.items()}
+    
+    def get_color(self, module_type: str) -> str:
+        """Get color for a specific module type."""
+        if module_type in self._items:
+            return self._items[module_type].get_color()
+        return self.DEFAULT_COLORS.get(module_type, "#607D8B")
 
 
 # ============================================================================

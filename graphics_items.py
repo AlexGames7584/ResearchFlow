@@ -409,6 +409,11 @@ class TagBadge(QGraphicsRectItem):
         hue = (hash_val * 37) % 360
         return QColor.fromHsl(hue, 200, 120)
     
+    def set_color(self, color: str) -> None:
+        """Set a custom color for this badge."""
+        self._color = QColor(color)
+        self.update()
+    
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: QWidget = None) -> None:
         rect = self.rect()
         
@@ -900,7 +905,7 @@ class PipelineModuleItem(BaseNodeItem):
     Types: input, output, process, decision
     """
     
-    MODULE_COLORS = {
+    DEFAULT_COLORS = {
         "input": Colors.PIPELINE_INPUT,
         "output": Colors.PIPELINE_OUTPUT,
         "process": Colors.PIPELINE_PROCESS,
@@ -909,10 +914,21 @@ class PipelineModuleItem(BaseNodeItem):
     
     def __init__(self, node_data: NodeData):
         super().__init__(node_data)
+        module_type = node_data.metadata.module_type or "process"
+        self._header_color = self.DEFAULT_COLORS.get(module_type, Colors.PIPELINE_PROCESS)
+    
+    @property
+    def module_type(self) -> str:
+        """Get the module type."""
+        return self.node_data.metadata.module_type or "process"
+    
+    def set_color(self, color: str) -> None:
+        """Set the header color for this module."""
+        self._header_color = QColor(color)
+        self.update()
     
     def _get_header_color(self) -> QColor:
-        module_type = self.node_data.metadata.module_type or "process"
-        return self.MODULE_COLORS.get(module_type, Colors.PIPELINE_PROCESS)
+        return self._header_color
     
     def _get_header_text(self) -> str:
         name = self.node_data.metadata.module_name or "Module"

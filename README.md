@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-3.0.1-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-3.1.0-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/python-3.10+-green.svg" alt="Python">
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey.svg" alt="Platform">
   <img src="https://img.shields.io/badge/license-MIT-orange.svg" alt="License">
@@ -28,25 +28,36 @@ ResearchFlow is a portable, aesthetically pleasing desktop application designed 
 
 ---
 
-## ✨ What's New in V3.0.1
+## ✨ What's New in V3.1.0
+
+### 🏷️ Tag Customization
+- **Custom Tag Colors**: Right-click any tag to customize its color. Colors are saved with the project.
+- **Persistent Colors**: Tags no longer reset to random colors when reloading a project.
+- **Tag Reordering**: Right-click to move tags up or down in the list.
+
+### 🎨 Module Color Customization
+- **Custom Module Colors**: Right-click modules in the toolbar (Input, Process, Decision, Output) to customize their colors.
+- **Real-time Sync**: Color changes instantly apply to all matching nodes in the canvas.
+- **Saved per Project**: Module colors are stored in project data.
 
 ### 🐛 Bugfixes
-- **Clean Exit**: Fixed issue where application process remained running after closing the window.
+- **LaTeX Rendering**: Fixed LaTeX formulas not rendering in packaged .exe builds.
+
+<details>
+<summary><strong>📜 V3.0.x</strong></summary>
+
+### V3.0.1
+- **Clean Exit**: Fixed issue where application process remained running after closing.
 - **Icon Loading**: Fixed window icon not displaying in packaged .exe builds.
 
-### 📦 V3.0.0 - Portable Executable
+### V3.0.0
 - **One-Click .exe**: Download and run – no Python installation required!
 - **True Portable Design**: All project data stored next to the `.exe`, perfect for USB drives.
 - **PyInstaller Optimized**: Properly handles frozen environment paths.
-
-### 🧹 Code Quality
-- **Clean Codebase**: Removed unused imports and outdated version comments.
-- **Type Hints**: Enhanced type annotations throughout the codebase.
-- **Constants**: Replaced magic numbers with named constants.
-
-### 🎨 Polish
 - **Snippet Editor**: Text editing dialog now supports proper word wrap.
 - **Sidebar Animation**: Smoother slide-in/out transitions.
+
+</details>
 
 <details>
 <summary><strong>📜 Previous Versions</strong></summary>
@@ -138,10 +149,12 @@ Create a standalone portable executable that runs without Python installed:
 pip install pyinstaller
 
 # Option 1: Single folder (recommended, faster startup)
-pyinstaller --noconsole --onedir --icon=icon.ico --add-data "icon.ico;." --name="ResearchFlow" main.py
+pyinstaller --noconsole --onedir --icon=icon.ico --add-data "icon.ico;." ^
+    --collect-all latex2mathml --name="ResearchFlow" main.py
 
 # Option 2: Single file (slower startup, but just one file)
-pyinstaller --noconsole --onefile --icon=icon.ico --add-data "icon.ico;." --name="ResearchFlow" main.py
+pyinstaller --noconsole --onefile --icon=icon.ico --add-data "icon.ico;." ^
+    --collect-all latex2mathml --name="ResearchFlow" main.py
 ```
 
 The generated files will be in the `dist/` folder. 

@@ -169,7 +169,8 @@ class ProjectData:
     Complete project state including all nodes, edges, and tags.
     Serialized to project_data.json.
     """
-    global_tags: list[str] = field(default_factory=list)
+    # Tags with colors: [{"name": "tag1", "color": "#FF5722"}, ...]
+    global_tags: list[dict] = field(default_factory=list)
     nodes: list[NodeData] = field(default_factory=list)
     edges: list[EdgeData] = field(default_factory=list)
     pipeline_initialized: bool = False
@@ -185,9 +186,17 @@ class ProjectData:
     # UI layout persistence
     dock_layout: list[int] = field(default_factory=list)
     
+    # Module palette colors (V3.1.0)
+    module_colors: dict = field(default_factory=lambda: {
+        "input": "#4CAF50",
+        "process": "#9C27B0",
+        "decision": "#FF9800",
+        "output": "#2196F3"
+    })
+    
     def to_dict(self) -> dict:
         return {
-            "global_tags": self.global_tags.copy(),
+            "global_tags": [t.copy() if isinstance(t, dict) else {"name": t, "color": None} for t in self.global_tags],
             "nodes": [n.to_dict() for n in self.nodes],
             "edges": [e.to_dict() for e in self.edges],
             "pipeline_initialized": self.pipeline_initialized,
@@ -195,13 +204,23 @@ class ProjectData:
             "todos": [t.copy() for t in self.todos],
             "pipeline_edge_color": self.pipeline_edge_color,
             "reference_edge_color": self.reference_edge_color,
-            "dock_layout": self.dock_layout
+            "dock_layout": self.dock_layout,
+            "module_colors": self.module_colors.copy()
         }
     
     @classmethod
     def from_dict(cls, data: dict) -> "ProjectData":
+        # Handle backward compatibility: convert old list[str] tags to list[dict]
+        raw_tags = data.get("global_tags", [])
+        tags = []
+        for t in raw_tags:
+            if isinstance(t, str):
+                tags.append({"name": t, "color": None})
+            else:
+                tags.append(t)
+        
         return cls(
-            global_tags=data.get("global_tags", []).copy(),
+            global_tags=tags,
             nodes=[NodeData.from_dict(n) for n in data.get("nodes", [])],
             edges=[EdgeData.from_dict(e) for e in data.get("edges", [])],
             pipeline_initialized=data.get("pipeline_initialized", False),
@@ -209,7 +228,13 @@ class ProjectData:
             todos=data.get("todos", []),
             pipeline_edge_color=data.get("pipeline_edge_color", "#607D8B"),
             reference_edge_color=data.get("reference_edge_color", "#4CAF50"),
-            dock_layout=data.get("dock_layout", [])
+            dock_layout=data.get("dock_layout", []),
+            module_colors=data.get("module_colors", {
+                "input": "#4CAF50",
+                "process": "#9C27B0", 
+                "decision": "#FF9800",
+                "output": "#2196F3"
+            })
         )
     
     def to_json(self, indent: int = 2) -> str:
