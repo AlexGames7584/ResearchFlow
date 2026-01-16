@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QWidget, QToolBar, QStatusBar,
     QFileDialog, QMessageBox, QMenu, QPushButton
 )
-from PyQt6.QtCore import Qt, QPointF, QRectF, QMimeData, QByteArray, QBuffer, QVariantAnimation, QEasingCurve
+from PyQt6.QtCore import Qt, QPointF, QRectF, QMimeData, QByteArray, QBuffer, QVariantAnimation, QEasingCurve, pyqtSignal
 from PyQt6.QtGui import (
     QAction, QKeySequence, QDragEnterEvent, QDropEvent,
     QMouseEvent, QWheelEvent, QClipboard, QImage, QColor, QPainter, QBrush, QIcon, QPen
@@ -29,11 +29,20 @@ from models import (
 from utils import ProjectManager, extract_title_from_filename, get_app_root, get_resource_path, ModernTheme
 from graphics_items import (
     BaseNodeItem, PipelineModuleItem, ReferenceNodeItem, EdgeItem,
-    TempConnectionLine, Colors, SnippetItem, GroupItem
+    TempConnectionLine, Colors, SnippetItem, GroupItem, WaypointItem
 )
 from widgets import (
     WelcomeDialog, ProjectDockWidget, MarkdownViewerDialog, ModulePalette,
     PipelineRequiredDialog
+)
+from undo import (
+    UndoManager, DescriptionChangeCommand,
+    TodoAddCommand, TodoRemoveCommand, TodoEditCommand, TodoToggleCommand, TodoMoveCommand,
+    TagAddCommand, TagRemoveCommand, TagRenameCommand, TagColorChangeCommand, TagMoveCommand,
+    AddNodeCommand, RemoveNodeCommand, NodePositionCommand,
+    AddEdgeCommand, RemoveEdgeCommand,
+    AddGroupCommand, RemoveGroupCommand, GroupMoveCommand, NodeGroupChangeCommand,
+    GlobalEdgeColorChangeCommand, ModulePaletteColorChangeCommand
 )
 
 
@@ -44,6 +53,17 @@ class ResearchScene(QGraphicsScene):
     """
     Custom scene handling node management and connections.
     """
+    
+    # Undo/Redo Signals
+    node_added_requested = pyqtSignal(dict)
+    node_removed_requested = pyqtSignal(dict, list)
+    node_moved_requested = pyqtSignal(str, tuple, tuple)
+    edge_added_requested = pyqtSignal(dict)
+    edge_removed_requested = pyqtSignal(dict)
+    group_added_requested = pyqtSignal(dict)
+    group_removed_requested = pyqtSignal(dict)
+    group_moved_requested = pyqtSignal(str, tuple, tuple)
+    node_group_changed = pyqtSignal(str, object, object)  # node_id, old_group_id, new_group_id
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -57,9 +77,11 @@ class ResearchScene(QGraphicsScene):
         self._nodes: dict[str, BaseNodeItem] = {}
         self._edges: dict[str, EdgeItem] = {}
         self._groups: dict[str, GroupItem] = {}  # V3.5.0
+        self._waypoints: dict[str, WaypointItem] = {}  # V3.9.0
         self._temp_connection: Optional[TempConnectionLine] = None
         self._connection_source: Optional[BaseNodeItem] = None
-        self._suppress_context_menu: bool = False  # Flag to prevent context menu after connection
+        self._suppress_context_menu: bool = False
+        self._is_undo_operation: bool = False  # Flag to bypass signal emission
         
         # Edge color settings (V1.2.0)
         self._pipeline_edge_color = "#607D8B"
@@ -94,24 +116,79 @@ class ResearchScene(QGraphicsScene):
             y += self._grid_size
     
     def set_edge_colors(self, pipeline_color: str, reference_color: str) -> None:
-        """Set edge colors and update all existing edges."""
+        """Set edge colors and update all existing edges and waypoints."""
         self._pipeline_edge_color = pipeline_color
         self._reference_edge_color = reference_color
+        
+        # Update edges
         for edge in self._edges.values():
             edge.update_colors(pipeline_color, reference_color)
+            
+        # V3.9.0: Update waypoints
+        for waypoint in self._waypoints.values():
+            # Apply new color based on current mode
+            color = reference_color if waypoint._is_reference_type else pipeline_color
+            waypoint.set_color(color)
     
     def add_node(self, node: BaseNodeItem) -> None:
-        """Add a node to the scene."""
+        """Add a node to the scene (Gatekeeper)."""
+        if self._is_undo_operation:
+            self._add_node_internal(node)
+        else:
+            # Emit request
+            # We convert to dict for serialization consistency
+            self.node_added_requested.emit(node.node_data.to_dict())
+
+    def _add_node_internal(self, node: BaseNodeItem) -> None:
+        """Internal add node logic."""
         self.addItem(node)
         self._nodes[node.node_data.id] = node
         
         # Connect signals
         node.signals.data_changed.connect(self._on_node_changed)
         node.signals.expand_requested.connect(self._on_expand_requested)
-        node.signals.drag_finished.connect(self.check_node_grouping)
+        # Handle drag finish for grouping AND undo (V3.9.0)
+        node.signals.drag_finished.connect(self._on_node_interaction_finished)
     
+    def _on_node_interaction_finished(self, node_id: str, modifiers) -> None:
+        """Handle node drag/interaction end."""
+        # 1. Grouping Logic
+        self.check_node_grouping(node_id, modifiers)
+        
+        # 2. Undo/Redo Movement Logic
+        node = self._nodes.get(node_id) or self._waypoints.get(node_id)
+        if node and hasattr(node, '_drag_start_pos'):
+            old_pos = (node._drag_start_pos.x(), node._drag_start_pos.y())
+            new_pos = (node.pos().x(), node.pos().y())
+            
+            # Emit signal only if actually moved
+            if (abs(old_pos[0] - new_pos[0]) > 0.1 or 
+                abs(old_pos[1] - new_pos[1]) > 0.1):
+                self.node_moved_requested.emit(node_id, old_pos, new_pos)
+
+
     def remove_node(self, node_id: str) -> None:
-        """Remove a node and its edges from the scene."""
+        """Remove a node (Gatekeeper)."""
+        if self._is_undo_operation:
+            self._remove_node_internal(node_id)
+        else:
+            # Need to gather connected edges for Command context
+            node = self._nodes.get(node_id)
+            if node:
+                edges = []
+                for edge in self._edges.values():
+                    if edge.source_node == node or edge.target_node == node:
+                        # Serialize edge data
+                        edges.append(EdgeData(
+                            id=edge.edge_id,
+                            source_id=edge.source_node.node_data.id,
+                            target_id=edge.target_node.node_data.id
+                        ).to_dict())
+                
+                self.node_removed_requested.emit(node.node_data.to_dict(), edges)
+
+    def _remove_node_internal(self, node_id: str) -> None:
+        """Internal remove node logic."""
         if node_id in self._nodes:
             # Remove from any groups (V3.5.0)
             for group in self._groups.values():
@@ -127,35 +204,231 @@ class ResearchScene(QGraphicsScene):
                     edges_to_remove.append(edge_id)
             
             for edge_id in edges_to_remove:
-                edge = self._edges.pop(edge_id)
-                self.removeItem(edge)
+                # Direct remove (bypass gatekeeper for side-effects)
+                self._remove_edge_internal(edge_id)
             
             self.removeItem(node)
     
     def add_edge(self, source_id: str, target_id: str, edge_id: str = None) -> Optional[EdgeItem]:
-        """Create an edge between two nodes."""
-        if source_id in self._nodes and target_id in self._nodes:
-            source = self._nodes[source_id]
-            target = self._nodes[target_id]
+        """Create an edge (Gatekeeper)."""
+        if self._is_undo_operation:
+            return self._add_edge_internal(source_id, target_id, edge_id)
+        else:
+            edge_id = edge_id or generate_uuid()
+            data = {"source_id": source_id, "target_id": target_id, "id": edge_id}
+            self.edge_added_requested.emit(data)
+            # Return edge if created synchronously
+            return self._edges.get(edge_id)
+
+    def _add_edge_internal(self, source_id: str, target_id: str, edge_id: str = None) -> Optional[EdgeItem]:
+        """Internal add edge logic."""
+        # Get source (can be node or waypoint)
+        source = self._nodes.get(source_id) or self._waypoints.get(source_id)
+        target = self._nodes.get(target_id) or self._waypoints.get(target_id)
+        
+        if source and target:
+            # Create edge
+            # Determine edge type
+            is_reference = False
+            if isinstance(source, ReferenceNodeItem):
+                is_reference = True
+            elif isinstance(source, WaypointItem) and source._is_reference_type:
+                is_reference = True
             
             edge = EdgeItem(source, target, edge_id,
                           self._pipeline_edge_color, self._reference_edge_color)
+            
+            # Manually set edge type/color if is_reference
+            if is_reference:
+                edge._is_reference_edge = True
+                edge._base_color = QColor(self._reference_edge_color)
+                edge.setPen(QPen(edge._base_color, 2))
+                edge.update()
+            
             self.addItem(edge)
             self._edges[edge.edge_id] = edge
             
+            # V3.9.0: Update waypoint status if target is waypoint
+            if isinstance(target, WaypointItem):
+                target.set_has_incoming(True)
+                changed = target.set_reference_type(is_reference, 
+                                        self._pipeline_edge_color, 
+                                        self._reference_edge_color)
+                
+                # Propagate to outgoing edge from this waypoint
+                if changed:
+                    self._update_outgoing_edges(target, is_reference)
+            
             return edge
         return None
+        
+    def _update_outgoing_edges(self, source_node: BaseNodeItem, is_reference: bool) -> None:
+        """Helper to propagate reference status to outgoing edges."""
+        for edge in self._edges.values():
+            if edge.source_node == source_node:
+                # Update edge
+                edge._is_reference_edge = is_reference
+                color = self._reference_edge_color if is_reference else self._pipeline_edge_color
+                edge._base_color = QColor(color)
+                edge.setPen(QPen(edge._base_color, 2))
+                edge.update()
+                
+                # If target is also a waypoint, continue propagation
+                if isinstance(edge.target_node, WaypointItem):
+                    changed = edge.target_node.set_reference_type(is_reference, 
+                                                      self._pipeline_edge_color, 
+                                                      self._reference_edge_color)
+                    if changed:
+                        self._update_outgoing_edges(edge.target_node, is_reference)
     
     def remove_edge(self, edge_id: str) -> None:
-        """Remove an edge by its ID."""
+        """Remove an edge (Gatekeeper)."""
+        if self._is_undo_operation:
+            self._remove_edge_internal(edge_id)
+        else:
+            edge = self._edges.get(edge_id)
+            if edge:
+                data = EdgeData(
+                    id=edge_id,
+                    source_id=edge.source_node.node_data.id,
+                    target_id=edge.target_node.node_data.id
+                ).to_dict()
+                self.edge_removed_requested.emit(data)
+
+    def _remove_edge_internal(self, edge_id: str) -> None:
+        """Internal remove edge logic."""
         if edge_id in self._edges:
             edge = self._edges.pop(edge_id)
+            
+            # V3.9.0: Update waypoint status if target was a waypoint
+            target_id = edge.target_node.node_data.id
+            if target_id in self._waypoints:
+                waypoint = self._waypoints[target_id]
+                # Check if there are any remaining incoming edges
+                has_incoming = any(
+                    e.target_node.node_data.id == target_id 
+                    for e in self._edges.values()
+                )
+                waypoint.set_has_incoming(has_incoming)
+                
+                # Reset color to default if no incoming edge
+                if not has_incoming:
+                    waypoint.set_reference_type(False, 
+                                              self._pipeline_edge_color, 
+                                              self._reference_edge_color)
+                    # Propagate reset to outgoing edges
+                    self._update_outgoing_edges(waypoint, False)
+            
             self.removeItem(edge)
     
+    def add_waypoint(self, waypoint: WaypointItem) -> None:
+        """Add a waypoint (Gatekeeper)."""
+        if self._is_undo_operation:
+            self._add_waypoint_internal(waypoint)
+        else:
+            self.node_added_requested.emit(waypoint.node_data.to_dict())
+
+    def _add_waypoint_internal(self, waypoint: WaypointItem) -> None:
+        """Internal add waypoint logic."""
+        self.addItem(waypoint)
+        self._waypoints[waypoint.node_data.id] = waypoint
+        
+        # Connect signals for grouping
+        # waypoint.signals.drag_finished.connect(self.check_node_grouping)
+        waypoint.signals.drag_finished.connect(self._on_node_interaction_finished)
+        waypoint.signals.data_changed.connect(self._on_node_changed)
+    
+    def remove_waypoint(self, waypoint_id: str) -> None:
+        """Remove a waypoint (Gatekeeper)."""
+        if self._is_undo_operation:
+            self._remove_waypoint_internal(waypoint_id)
+        else:
+            waypoint = self._waypoints.get(waypoint_id)
+            if waypoint:
+                edges = []
+                for edge in self._edges.values():
+                    if edge.source_node == waypoint or edge.target_node == waypoint:
+                        edges.append(EdgeData(
+                            id=edge.edge_id,
+                            source_id=edge.source_node.node_data.id,
+                            target_id=edge.target_node.node_data.id
+                        ).to_dict())
+                self.node_removed_requested.emit(waypoint.node_data.to_dict(), edges)
+
+    def _remove_waypoint_internal(self, waypoint_id: str) -> None:
+        """Internal remove waypoint logic."""
+        if waypoint_id in self._waypoints:
+            # Remove from groups
+            for group in self._groups.values():
+                if waypoint_id in group.group_data.node_ids:
+                    group.remove_node(waypoint_id)
+            
+            waypoint = self._waypoints.pop(waypoint_id)
+            
+            # Remove connected edges
+            edges_to_remove = []
+            for edge_id, edge in self._edges.items():
+                if edge.source_node == waypoint or edge.target_node == waypoint:
+                    edges_to_remove.append(edge_id)
+            
+            for edge_id in edges_to_remove:
+                self._remove_edge_internal(edge_id)
+            
+            self.removeItem(waypoint)
+
+    def restore_node(self, node_data) -> None:
+        """Restore a node/waypoint from data (Undo/Redo helper)."""
+        self._is_undo_operation = True
+        try:
+            if node_data.type == "waypoint":
+                waypoint = WaypointItem(node_data, initial_color=self._pipeline_edge_color)
+                self._add_waypoint_internal(waypoint)
+            else:
+                if node_data.type == "pipeline_module":
+                    node = PipelineModuleItem(node_data)
+                else:
+                    node = ReferenceNodeItem(node_data)
+                self._add_node_internal(node)
+        finally:
+            self._is_undo_operation = False
+
+    def restore_edge(self, edge_data) -> None:
+        """Restore an edge from data."""
+        self._is_undo_operation = True
+        try:
+            self._add_edge_internal(edge_data.source_id, edge_data.target_id, edge_data.id)
+        finally:
+            self._is_undo_operation = False
+
+    def restore_group(self, group_data) -> None:
+        """Restore a group from data."""
+        group = GroupItem(group_data)
+        self.addItem(group)
+        self._groups[group_data.id] = group
+        group.signals.moved.connect(self.update_group_nodes_position)
+        group.signals.color_changed.connect(self.update_group_color_visuals)
+        group.signals.drag_finished.connect(self._on_group_drag_finished)
+        group.signals.node_added.connect(self._on_group_node_added)
+        group.signals.node_removed.connect(self._on_group_node_removed)
+        group.setZValue(-1)
+
+    def remove_group(self, group_id: str) -> None:
+        """Remove a group by ID."""
+        self._is_undo_operation = True
+        try:
+            if group_id in self._groups:
+                group = self._groups.pop(group_id)
+                self.removeItem(group)
+        finally:
+            self._is_undo_operation = False
+    
     def get_node_at(self, pos: QPointF) -> Optional[BaseNodeItem]:
-        """Get the node at the given scene position."""
+        """Get the node or waypoint at the given scene position."""
         items = self.items(pos)
         for item in items:
+            # Check if it's a waypoint directly
+            if isinstance(item, WaypointItem):
+                return item
             # Walk up to find the node
             while item:
                 if isinstance(item, BaseNodeItem):
@@ -168,8 +441,8 @@ class ResearchScene(QGraphicsScene):
         for edge in self._edges.values():
             edge.update_path()
     
-    def start_connection(self, source: BaseNodeItem, start_pos: QPointF) -> None:
-        """Start drawing a temporary connection."""
+    def start_connection(self, source, start_pos: QPointF) -> None:
+        """Start drawing a temporary connection from node or waypoint."""
         self._connection_source = source
         source.set_connection_source(True)
         self._temp_connection = TempConnectionLine(start_pos)
@@ -180,10 +453,30 @@ class ResearchScene(QGraphicsScene):
         if self._temp_connection:
             self._temp_connection.update_end(pos)
     
-    def complete_connection(self, target: BaseNodeItem) -> bool:
-        """Complete a connection to the target node with deep copy."""
+    def complete_connection(self, target) -> bool:
+        """Complete a connection to the target node/waypoint with deep copy."""
         if self._connection_source and target and self._connection_source != target:
             source = self._connection_source
+            
+            # V3.9.0: Block Pipeline → Reference connections
+            if isinstance(source, PipelineModuleItem) and isinstance(target, ReferenceNodeItem):
+                self.cancel_connection()
+                return False
+            
+            # V3.9.0: Waypoint restrictions - single in, single out
+            if isinstance(target, WaypointItem):
+                # Check if waypoint already has an incoming edge
+                for edge in self._edges.values():
+                    if edge.target_node.node_data.id == target.node_data.id:
+                        self.cancel_connection()
+                        return False  # Already has incoming
+            
+            if isinstance(source, WaypointItem):
+                # Check if waypoint already has an outgoing edge
+                for edge in self._edges.values():
+                    if edge.source_node.node_data.id == source.node_data.id:
+                        self.cancel_connection()
+                        return False  # Already has outgoing
             
             # Deep copy snippets only when connecting Reference → Pipeline
             if isinstance(source, ReferenceNodeItem) and isinstance(target, PipelineModuleItem):
@@ -249,6 +542,10 @@ class ResearchScene(QGraphicsScene):
         # Export nodes
         for node in self._nodes.values():
             data.nodes.append(node.node_data)
+            
+        # V3.9.0: Export waypoints
+        for waypoint in self._waypoints.values():
+            data.nodes.append(waypoint.node_data)
         
         # Export edges
         for edge_id, edge in self._edges.items():
@@ -279,18 +576,26 @@ class ResearchScene(QGraphicsScene):
             group = GroupItem(group_data)
             self.addItem(group)
             self._groups[group_data.id] = group
-            self._groups[group_data.id] = group
             group.signals.moved.connect(self.update_group_nodes_position)
             group.signals.color_changed.connect(self.update_group_color_visuals)
+            group.signals.drag_finished.connect(self._on_group_drag_finished)
+            group.signals.node_added.connect(self._on_group_node_added)
+            group.signals.node_removed.connect(self._on_group_node_removed)
         
-        # Create nodes
+        # Create nodes and waypoints
         for node_data in data.nodes:
             if node_data.type == "pipeline_module":
                 node = PipelineModuleItem(node_data)
-            else:
+                self.add_node(node)
+            elif node_data.type == "reference_paper":
                 node = ReferenceNodeItem(node_data)
-            
-            self.add_node(node)
+                self.add_node(node)
+            elif node_data.type == "waypoint":
+                waypoint = WaypointItem(
+                    node_data,
+                    initial_color=self._pipeline_edge_color
+                )
+                self.add_waypoint(waypoint)
         
         # Create edges
         for edge_data in data.edges:
@@ -299,12 +604,15 @@ class ResearchScene(QGraphicsScene):
         # Initialize group visuals
         for group in self._groups.values():
             for node_id in group.group_data.node_ids:
-                if node_id in self._nodes:
-                    self._nodes[node_id].set_group_color(group.group_data.color)
+                # Check both nodes and waypoints
+                node = self._nodes.get(node_id) or self._waypoints.get(node_id)
+                if node:
+                    node.set_group_color(group.group_data.color)
 
     def check_node_grouping(self, node_id: str, modifiers) -> None:
-        """Handle node grouping logic on drag finish."""
-        node = self._nodes.get(node_id)
+        """Handle node grouping logic on drag finish (supports nodes and waypoints)."""
+        # Look in both nodes and waypoints
+        node = self._nodes.get(node_id) or self._waypoints.get(node_id)
         if not node:
             return
             
@@ -344,23 +652,52 @@ class ResearchScene(QGraphicsScene):
                 node.set_group_color(None)
 
     def update_group_nodes_position(self, group_id: str, dx: float, dy: float) -> None:
-        """Move all nodes in the group by delta."""
+        """Move all nodes in the group by delta (snap is handled by group)."""
         group = self._groups.get(group_id)
         if not group:
             return
             
         for node_id in group.group_data.node_ids:
-            if node_id in self._nodes:
-                node = self._nodes[node_id]
+            # Check both nodes and waypoints
+            node = self._nodes.get(node_id) or self._waypoints.get(node_id)
+            if node:
+                # Set flag to prevent individual snap - group handles snap for all
+                node._being_moved_by_group = True
                 node.moveBy(dx, dy)
+                node._being_moved_by_group = False
 
     def update_group_color_visuals(self, group_id: str, color: str) -> None:
         """Update visual color for all nodes in group."""
         group = self._groups.get(group_id)
         if not group: return
         for node_id in group.group_data.node_ids:
-            if node_id in self._nodes:
-                self._nodes[node_id].set_group_color(color)
+            # Check both nodes and waypoints
+            node = self._nodes.get(node_id) or self._waypoints.get(node_id)
+            if node:
+                node.set_group_color(color)
+    
+    def _on_group_drag_finished(self, group_id: str, old_pos: tuple, new_pos: tuple) -> None:
+        """Handle group drag end - emit signal for undo tracking."""
+        self.group_moved_requested.emit(group_id, old_pos, new_pos)
+    
+    def _on_group_node_added(self, group_id: str, node_id: str) -> None:
+        """Handle node added to group - find old group for undo."""
+        # Find if node was in another group before
+        old_group_id = None
+        for gid, group in self._groups.items():
+            if gid != group_id and node_id in group.group_data.node_ids:
+                old_group_id = gid
+                break
+        # Emit signal for MainWindow to create command
+        # We need a new signal for this
+        if hasattr(self, 'node_group_changed'):
+            self.node_group_changed.emit(node_id, old_group_id, group_id)
+    
+    def _on_group_node_removed(self, group_id: str, node_id: str) -> None:
+        """Handle node removed from group."""
+        # Emit signal for MainWindow
+        if hasattr(self, 'node_group_changed'):
+            self.node_group_changed.emit(node_id, group_id, None)
 
 
 # ============================================================================
@@ -437,9 +774,18 @@ class ResearchView(QGraphicsView):
             if isinstance(item, EdgeItem):
                 self._research_scene.remove_edge(item.edge_id)
             elif isinstance(item, GroupItem):
+                # V3.9.0: Unbind all nodes before deleting group
+                for node_id in item.group_data.node_ids:
+                    if node_id in self._research_scene._nodes:
+                        self._research_scene._nodes[node_id].set_group_color(None)
+                    if node_id in self._research_scene._waypoints:
+                        self._research_scene._waypoints[node_id].set_group_color(None)
                 if item.group_data.id in self._research_scene._groups:
                     del self._research_scene._groups[item.group_data.id]
                 self._research_scene.removeItem(item)
+            elif isinstance(item, WaypointItem):
+                # V3.9.0: Delete waypoint
+                self._research_scene.remove_waypoint(item.node_data.id)
             elif isinstance(item, BaseNodeItem) and not isinstance(item, SnippetItem):
                 # Ensure we don't try to delete ReferenceNodeItem/PipelineModuleItem again if processed differently
                 self._research_scene.remove_node(item.node_data.id)
@@ -593,6 +939,8 @@ class ResearchView(QGraphicsView):
                 module_type = text.split(":", 1)[1]
                 if module_type == "group":
                     self._create_group(pos)
+                elif module_type == "waypoint":
+                    self._create_waypoint(pos)
                 else:
                     self._create_module(module_type, pos)
                 event.acceptProposedAction()
@@ -622,11 +970,20 @@ class ResearchView(QGraphicsView):
     
     def _create_group(self, pos: QPointF) -> None:
         """Create a new group at position."""
+        # Get current group color from palette
+        group_color = "#78909C"  # Default fallback
+        main_window = self.parent()
+        if main_window and hasattr(main_window, 'module_palette'):
+            # The group item is stored in group_item attribute
+            if hasattr(main_window.module_palette, 'group_item'):
+                group_color = main_window.module_palette.group_item._color.name()
+        
         group_data = GroupData(
             position=Position(pos.x(), pos.y()),
             width=300,
             height=200,
-            name="New Group"
+            name="New Group",
+            color=group_color
         )
         
         group = GroupItem(group_data)
@@ -648,6 +1005,26 @@ class ResearchView(QGraphicsView):
         
         node = PipelineModuleItem(node_data)
         self._research_scene.add_node(node)
+        
+        # V3.9.0: Apply current palette color to new node
+        main_window = self.parent()
+        if main_window and hasattr(main_window, 'module_palette'):
+            current_color = main_window.module_palette.get_color(module_type)
+            node.set_color(current_color)
+    
+    def _create_waypoint(self, pos: QPointF) -> None:
+        """Create a new waypoint at position."""
+        node_data = NodeData(
+            type="waypoint",
+            position=Position(pos.x(), pos.y())
+        )
+        
+        # V3.9.0: Initialize with current pipeline color
+        waypoint = WaypointItem(
+            node_data, 
+            initial_color=self._research_scene._pipeline_edge_color
+        )
+        self._research_scene.add_waypoint(waypoint)
     
     def _import_markdown(self, path: str, pos: QPointF) -> None:
         """Import a markdown file as a reference node."""
@@ -768,10 +1145,15 @@ class MainWindow(QMainWindow):
         
         self.project_manager = ProjectManager()
         
+        # V3.9.0: Initialize undo manager
+        self.undo_manager = UndoManager(context=self)
+        
         self._setup_ui()
         self._setup_menu()
         self._setup_toolbar()
         self._setup_statusbar()
+        self._setup_shortcuts()  # V3.9.0
+        self._create_undo_actions() # V3.9.0
         
         # Show welcome dialog
         self._show_welcome()
@@ -783,18 +1165,43 @@ class MainWindow(QMainWindow):
         self.view = ResearchView(self.scene, self)
         self.setCentralWidget(self.view)
         
+        # Connect Scene Signals for Undo/Redo (V3.9.0)
+        self.scene.node_added_requested.connect(self._on_node_added)
+        self.scene.node_removed_requested.connect(self._on_node_removed)
+        self.scene.node_moved_requested.connect(self._on_node_moved)
+        self.scene.edge_added_requested.connect(self._on_edge_added)
+        self.scene.edge_removed_requested.connect(self._on_edge_removed)
+        self.scene.group_added_requested.connect(self._on_group_added)
+        self.scene.group_removed_requested.connect(self._on_group_removed)
+        self.scene.group_moved_requested.connect(self._on_group_moved)
+        self.scene.node_group_changed.connect(self._on_node_group_changed)
+        
         # Project dock (Replaces Tag dock)
         self.project_dock = ProjectDockWidget(self)
-        # Tag signals
-        self.project_dock.tag_added.connect(self._on_tag_added)
-        self.project_dock.tag_removed.connect(self._on_tag_removed)
-        self.project_dock.tag_renamed.connect(self._on_tag_renamed)
-        self.project_dock.tag_color_changed.connect(self._on_tag_color_changed)
+        # Tag signals (Undo/Redo)
+        self.project_dock.tag_added_requested.connect(self._on_tag_added)
+        self.project_dock.tag_removed_requested.connect(self._on_tag_removed)
+        self.project_dock.tag_renamed_requested.connect(self._on_tag_renamed_cmd)
+        self.project_dock.tag_color_changed_requested.connect(self._on_tag_color_changed_undo)
+        self.project_dock.move_tag_requested.connect(self._on_move_tag)
+        
+        # Todo signals (Undo/Redo)
+        self.project_dock.todo_added_requested.connect(self._on_todo_added)
+        self.project_dock.todo_removed_requested.connect(self._on_todo_removed)
+        self.project_dock.todo_edited_requested.connect(self._on_todo_edited)
+        self.project_dock.todo_toggled_requested.connect(self._on_todo_toggled)
+        self.project_dock.move_todo_requested.connect(self._on_todo_moved)
+        
         # Project signals
-        self.project_dock.description_changed.connect(self._on_description_changed)
-        self.project_dock.todo_changed.connect(self._on_todo_changed)
-        self.project_dock.edge_color_changed.connect(self._on_edge_color_changed)
+        self.project_dock.description_changed.connect(self._on_description_changed_undo)
+        # self.project_dock.todo_changed.connect(self._on_todo_changed) # Handled by specific signals now
+        self.project_dock.edge_color_changed.connect(self._on_edge_color_changed_undo)
         self.project_dock.close_requested.connect(self._animate_dock_hide)
+        
+        # V3.9.0: Connect tag sync signals (after undo commands modify dock)
+        self.project_dock.tag_renamed.connect(self._on_tag_renamed_sync)
+        self.project_dock.tag_removed.connect(self._on_tag_removed_sync)
+        self.project_dock.tag_color_changed.connect(self._on_tag_color_changed_sync)
         
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.project_dock)
         
@@ -991,6 +1398,31 @@ class MainWindow(QMainWindow):
         self.setStatusBar(self.statusbar)
         self.statusbar.showMessage("Welcome to ResearchFlow")
     
+    def _setup_shortcuts(self) -> None:
+        """Setup keyboard shortcuts (undo/redo handled via menu actions)."""
+        # Undo/Redo shortcuts are set via _create_undo_actions menu items
+        # No additional QShortcut registration needed to avoid conflict
+        pass
+    
+    def _undo(self) -> None:
+        """Perform undo operation."""
+        if not self.undo_manager.can_undo():
+            self.statusbar.showMessage("Nothing to undo", 2000)
+            return
+        if self.undo_manager.undo():
+            remaining = len(self.undo_manager._undo_stack)
+            self.statusbar.showMessage(f"Undo performed ({remaining} remaining)", 2000)
+    
+    def _redo(self) -> None:
+        """Perform redo operation."""
+        if not self.undo_manager.can_redo():
+            self.statusbar.showMessage("Nothing to redo", 2000)
+            return
+        if self.undo_manager.redo():
+            remaining = len(self.undo_manager._redo_stack)
+            self.statusbar.showMessage(f"Redo performed ({remaining} remaining)", 2000)
+
+    
     def _show_welcome(self) -> None:
         """Show the welcome dialog."""
         projects = self.project_manager.list_existing_projects()
@@ -1029,33 +1461,50 @@ class MainWindow(QMainWindow):
         
         data = self.project_manager.project_data
         
-        # Load scene data
-        self.scene.project_manager = self.project_manager
-        self.scene.set_edge_colors(data.pipeline_edge_color, data.reference_edge_color)
-        self.scene.load_project_data(data)
+        # V3.9.0: Clear undo history and set flag to prevent recording load operations
+        self.undo_manager.clear()
+        self.scene._is_undo_operation = True
         
-        # Load project dock data
-        self.project_dock.set_project_data(
-            data.description,
-            data.todos,
-            data.global_tags,
-            data.pipeline_edge_color,
-            data.reference_edge_color
-        )
+        try:
+            # Load scene data
+            self.scene.project_manager = self.project_manager
+            self.scene.set_edge_colors(data.pipeline_edge_color, data.reference_edge_color)
+            self.scene.load_project_data(data)
+            
+            # Load project dock data
+            self.project_dock.set_project_data(
+                data.description,
+                data.todos,
+                data.global_tags,
+                data.pipeline_edge_color,
+                data.reference_edge_color
+            )
+            
+            # Load layout state
+            if data.dock_layout:
+                self.project_dock.set_layout_state(data.dock_layout)
+            
+            # Load module palette colors and apply to existing nodes
+            if data.module_colors:
+                self.module_palette.set_colors(data.module_colors)
+                # Apply colors to already loaded nodes
+                for node in self.scene._nodes.values():
+                    if isinstance(node, PipelineModuleItem):
+                        mtype = node.module_type
+                        if mtype in data.module_colors:
+                            node.set_color(data.module_colors[mtype])
+            
+            # V3.9.0: Always sync waypoint palette color with pipeline edge color
+            self.module_palette.waypoint_item.set_color(data.pipeline_edge_color)
+        finally:
+            # Restore normal operation
+            self.scene._is_undo_operation = False
         
-        # Load layout state
-        if data.dock_layout:
-            self.project_dock.set_layout_state(data.dock_layout)
+        # V3.9.0: Sync tag colors to nodes after load
+        self._sync_all_tag_colors()
         
-        # Load module palette colors and apply to existing nodes
-        if data.module_colors:
-            self.module_palette.set_colors(data.module_colors)
-            # Apply colors to already loaded nodes
-            for node in self.scene._nodes.values():
-                if isinstance(node, PipelineModuleItem):
-                    mtype = node.module_type
-                    if mtype in data.module_colors:
-                        node.set_color(data.module_colors[mtype])
+        # V3.9.0: Load undo history AFTER project is fully loaded
+        self.undo_manager.load_from_file(self.project_manager.current_project_path)
         
         self.setWindowTitle(f"ResearchFlow - {self.project_manager.current_project_name}")
     
@@ -1066,35 +1515,141 @@ class MainWindow(QMainWindow):
             self.project_manager.project_data.description = text
             self._auto_save()
     
-    def _on_todo_changed(self) -> None:
+    def _create_undo_actions(self):
+        """Create Undo/Redo actions in Edit menu."""
+        # Find Edit menu
+        menubar = self.menuBar()
+        edit_menu = None
+        for action in menubar.actions():
+            if action.text() == "&Edit":
+                edit_menu = action.menu()
+                break
+        
+        if edit_menu:
+            edit_menu.addSeparator()
+            
+            undo_action = QAction("Undo", self)
+            undo_action.setShortcut(QKeySequence.StandardKey.Undo)
+            undo_action.triggered.connect(self._undo)
+            edit_menu.addAction(undo_action)
+            
+            redo_action = QAction("Redo", self)
+            redo_action.setShortcut(QKeySequence.StandardKey.Redo)
+            redo_action.triggered.connect(self._redo)
+            edit_menu.addAction(redo_action)
+
+    # --- Undo/Redo Handlers ---
+
+    def _on_description_changed_undo(self, new_desc: str) -> None:
+        """Handle description change with Undo."""
         if self.project_manager.is_project_open:
-            self.project_manager.project_data.todos = self.project_dock.get_todos()
+            cmd = DescriptionChangeCommand(self, self.project_manager.project_data.description, new_desc)
+            self.undo_manager.execute(cmd)
             self._auto_save()
-    
-    def _on_edge_color_changed(self, pipeline_color: str, reference_color: str) -> None:
+
+    def _on_todo_added(self, text: str):
+        index = self.project_dock.todo_list.count()
+        cmd = TodoAddCommand(self, text, index)
+        self.undo_manager.execute(cmd)
+
+    def _on_todo_removed(self, index: int, text: str, is_done: bool):
+        cmd = TodoRemoveCommand(self, index, text, is_done)
+        self.undo_manager.execute(cmd)
+
+    def _on_todo_edited(self, index: int, old_text: str, new_text: str):
+         cmd = TodoEditCommand(self, index, old_text, new_text)
+         self.undo_manager.execute(cmd)
+
+    def _on_todo_toggled(self, index: int, new_state: bool):
+         cmd = TodoToggleCommand(self, index, new_state)
+         self.undo_manager.execute(cmd)
+   
+    def _on_todo_moved(self, from_index: int, to_index: int):
+         cmd = TodoMoveCommand(self, from_index, to_index)
+         self.undo_manager.execute(cmd)
+
+    def _on_tag_added(self, name: str):
+        cmd = TagAddCommand(self, name)
+        self.undo_manager.execute(cmd)
+
+    def _on_tag_removed(self, name: str, color: str, index: int):
+        cmd = TagRemoveCommand(self, name, color, index)
+        self.undo_manager.execute(cmd)
+
+    def _on_tag_renamed_cmd(self, old_name: str, new_name: str):
+        cmd = TagRenameCommand(self, old_name, new_name)
+        self.undo_manager.execute(cmd)
+
+    def _on_tag_color_changed_undo(self, name: str, old_color: str, new_color: str):
+        cmd = TagColorChangeCommand(self, name, old_color, new_color)
+        self.undo_manager.execute(cmd)
+
+    def _on_move_tag(self, from_index: int, to_index: int):
+        cmd = TagMoveCommand(self, from_index, to_index)
+        self.undo_manager.execute(cmd)
+
+    def _on_edge_color_changed_undo(self, pipeline_color: str, reference_color: str) -> None:
         if self.project_manager.is_project_open:
-            self.project_manager.project_data.pipeline_edge_color = pipeline_color
-            self.project_manager.project_data.reference_edge_color = reference_color
-            self.scene.set_edge_colors(pipeline_color, reference_color)
-            self._auto_save()
+            old_p = self.project_manager.project_data.pipeline_edge_color
+            old_r = self.project_manager.project_data.reference_edge_color
+            
+            if old_p != pipeline_color or old_r != reference_color:
+                cmd = GlobalEdgeColorChangeCommand(self, old_p, old_r, pipeline_color, reference_color)
+                self.undo_manager.execute(cmd)
     
     def _on_module_color_changed(self, module_type: str, color: str) -> None:
         """Handle module palette color change - update existing nodes."""
         if self.project_manager.is_project_open:
-            # Update project data
-            self.project_manager.project_data.module_colors[module_type] = color
+            # Check for actual change to prevent loop with UndoCommand
+            existing = self.project_manager.project_data.module_colors.get(module_type, "#607D8B")
+            if existing == color:
+                return
             
-            # Update existing groups (V3.5.0)
-            if module_type == "group":
-                for group in self.scene._groups.values():
-                    group.set_color(color)
-            
-            # Update existing nodes in the scene
-            for node in self.scene._nodes.values():
-                if isinstance(node, PipelineModuleItem) and node.module_type == module_type:
-                    node.set_color(color)
-            
+            cmd = ModulePaletteColorChangeCommand(self, module_type, existing, color)
+            self.undo_manager.execute(cmd)
             self._auto_save()
+            
+    # --- Scene Signal Handlers (V3.9.0) ---
+    
+    def _on_node_added(self, node_data_dict: dict):
+        cmd = AddNodeCommand(self, node_data_dict)
+        self.undo_manager.execute(cmd)
+        
+    def _on_node_removed(self, node_data_dict: dict, connected_edges: list):
+        cmd = RemoveNodeCommand(self, node_data_dict, connected_edges)
+        self.undo_manager.execute(cmd)
+        
+    def _on_node_moved(self, node_id: str, old_pos: tuple, new_pos: tuple):
+        # Only create command if actually moved significantly
+        if old_pos != new_pos:
+            cmd = NodePositionCommand(self, node_id, old_pos[0], old_pos[1], new_pos[0], new_pos[1])
+            self.undo_manager.execute(cmd)
+            
+    def _on_edge_added(self, edge_data_dict: dict):
+        cmd = AddEdgeCommand(self, edge_data_dict)
+        self.undo_manager.execute(cmd)
+        
+    def _on_edge_removed(self, edge_data_dict: dict):
+        cmd = RemoveEdgeCommand(self, edge_data_dict)
+        self.undo_manager.execute(cmd)
+        
+    def _on_group_added(self, group_data_dict: dict):
+        cmd = AddGroupCommand(self, group_data_dict)
+        self.undo_manager.execute(cmd)
+        
+    def _on_group_removed(self, group_data_dict: dict):
+        cmd = RemoveGroupCommand(self, group_data_dict)
+        self.undo_manager.execute(cmd)
+        
+    def _on_group_moved(self, group_id: str, old_pos: tuple, new_pos: tuple):
+        if old_pos != new_pos:
+            cmd = GroupMoveCommand(self, group_id, old_pos, new_pos)
+            self.undo_manager.execute(cmd)
+    
+    def _on_node_group_changed(self, node_id: str, old_group_id, new_group_id):
+        """Handle node added/removed from group for undo."""
+        cmd = NodeGroupChangeCommand(self, node_id, old_group_id, new_group_id)
+        self.undo_manager.execute(cmd)
     
     def _new_project(self) -> None:
         """Create a new project via dialog."""
@@ -1215,7 +1770,7 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self, "About ResearchFlow",
             "<h2>ResearchFlow</h2>"
-            "<p>Version 3.5.0</p>"
+            "<p>Version 3.9.0</p>"
             "<p>A portable research management tool for academics.</p>"
             "<p>Built with Python and PyQt6.</p>"
             "<hr>"
@@ -1240,7 +1795,7 @@ class MainWindow(QMainWindow):
             node.remove_tag(tag)
         self._auto_save()
     
-    def _on_tag_renamed(self, old_name: str, new_name: str) -> None:
+    def _on_tag_renamed_sync(self, old_name: str, new_name: str) -> None:
         """Handle tag rename - sync to all nodes."""
         for node in self.scene._nodes.values():
             if old_name in node.node_data.tags:
@@ -1252,7 +1807,16 @@ class MainWindow(QMainWindow):
                 node.update_layout()
         self._auto_save()
     
-    def _on_tag_color_changed(self, tag_name: str, color: str) -> None:
+    def _on_tag_removed_sync(self, tag_name: str) -> None:
+        """Handle tag removal - remove from all nodes."""
+        for node in self.scene._nodes.values():
+            if tag_name in node.node_data.tags:
+                node.node_data.tags.remove(tag_name)
+                node._rebuild_tags()
+                node.update_layout()
+        self._auto_save()
+    
+    def _on_tag_color_changed_sync(self, tag_name: str, color: str) -> None:
         """Handle tag color change - sync to all nodes."""
         for node in self.scene._nodes.values():
             if tag_name in node.node_data.tags:
@@ -1261,6 +1825,21 @@ class MainWindow(QMainWindow):
                     if badge.tag_name == tag_name:
                         badge.set_color(color)
         self._auto_save()
+    
+    def _sync_all_tag_colors(self) -> None:
+        """Sync all tag colors from dock to nodes (called after project load)."""
+        # Build tag color map from dock
+        tag_colors = {}
+        for tag_data in self.project_dock._tags:
+            color = tag_data.get("color")
+            if color:
+                tag_colors[tag_data["name"]] = color
+        
+        # Apply colors to all node badges
+        for node in self.scene._nodes.values():
+            for badge in node._tag_badges:
+                if badge.tag_name in tag_colors:
+                    badge.set_color(tag_colors[badge.tag_name])
     
     def _auto_save(self) -> None:
         """Auto-save the project with data validation."""

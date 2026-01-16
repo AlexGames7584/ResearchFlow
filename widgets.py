@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, 
     QScrollArea, QFrame, QDockWidget, QDialog, QTextBrowser, QMessageBox,
     QColorDialog, QTextEdit, QListWidget, QListWidgetItem, QGroupBox, 
-    QFormLayout, QMenu, QSplitter
+    QFormLayout, QMenu, QSplitter, QInputDialog
 )
 from PyQt6.QtCore import Qt, QMimeData, pyqtSignal, QSize, QPoint
 from PyQt6.QtGui import (
@@ -198,33 +198,26 @@ class WelcomeDialog(QDialog):
 class DraggableTagItem(QLabel):
     """A tag that can be dragged onto nodes, with customizable color."""
     
+    DEFAULT_COLOR = "#607D8B"  # Gray-blue default for all tags
     color_changed = pyqtSignal(str, str)  # tag_name, new_color
     
     def __init__(self, tag_name: str, color: str = None, parent=None):
         super().__init__(tag_name, parent)
         self.tag_name = tag_name
-        self._custom_color = color  # Store user-defined color (hex string or None)
-        self._color = QColor(color) if color else self._generate_color(tag_name)
+        # Use provided color or default gray
+        self._color = QColor(color) if color else QColor(self.DEFAULT_COLOR)
         
         self.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setCursor(Qt.CursorShape.OpenHandCursor)
-        self.setFixedHeight(28)  # Use fixed height to prevent compression
+        self.setFixedHeight(28)
         self.setContentsMargins(1, 1, 1, 1)
-        # Note: Context menu is handled by parent ProjectDockWidget
         
         self._update_style()
     
-    def _generate_color(self, text: str) -> QColor:
-        """Generate a consistent color based on tag name."""
-        hash_val = sum(ord(c) for c in text)
-        hue = (hash_val * 37) % 360
-        return QColor.fromHsl(hue, 200, 120)
-    
     def set_color(self, color: str) -> None:
         """Set a custom color for this tag."""
-        self._custom_color = color
-        self._color = QColor(color) if color else self._generate_color(self.tag_name)
+        self._color = QColor(color) if color else QColor(self.DEFAULT_COLOR)
         self._update_style()
     
     def get_color(self) -> str:
@@ -342,6 +335,19 @@ class ProjectDockWidget(QDockWidget):
     todo_changed = pyqtSignal()
     edge_color_changed = pyqtSignal(str, str)  # pipeline_color, reference_color
     close_requested = pyqtSignal()  # For animated close
+    
+    # Undo/Redo Request Signals
+    todo_added_requested = pyqtSignal(str)
+    todo_removed_requested = pyqtSignal(int, str, bool) # index, text, is_done
+    todo_edited_requested = pyqtSignal(int, str, str) # index, old, new
+    todo_toggled_requested = pyqtSignal(int, bool) # index, new_state
+    move_todo_requested = pyqtSignal(int, int) # from, to
+    
+    tag_added_requested = pyqtSignal(str)
+    tag_removed_requested = pyqtSignal(str, str, int) # name, color, index
+    tag_renamed_requested = pyqtSignal(str, str) # old, new
+    tag_color_changed_requested = pyqtSignal(str, str, str) # name, old, new
+    move_tag_requested = pyqtSignal(int, int) # from, to
     
     def __init__(self, parent=None):
         super().__init__("Project Manager", parent)
@@ -522,6 +528,22 @@ class ProjectDockWidget(QDockWidget):
     def get_description(self) -> str:
         return self.desc_edit.toPlainText()
     
+    def set_description(self, text: str) -> None:
+        """Set description programmatically (for Undo/Redo)."""
+        self.desc_edit.blockSignals(True)
+        self.desc_edit.setText(text)
+        self.desc_edit.blockSignals(False)
+        # Update project data if manager available
+        if hasattr(self, 'parent') and hasattr(self.parent(), 'project_manager'):
+            pm = self.parent().project_manager
+            if pm.is_project_open:
+                pm.project_data.description = text
+    
+    def add_todo(self, text: str) -> None:
+        """Add a todo item programmatically (for Undo/Redo execute)."""
+        self._create_todo_item(text, False)
+        self.todo_changed.emit()
+    
     def get_todos(self) -> list[dict]:
         """Return list of todos: [{'text': '...', 'done': True/False}]"""
         todos = []
@@ -562,16 +584,25 @@ class ProjectDockWidget(QDockWidget):
             self._update_color_buttons()
             self.edge_color_changed.emit(self._pipeline_color, self._reference_color)
             
+    def set_edge_colors(self, pipeline_color: str, reference_color: str) -> None:
+        """Set edge colors programmatically (for Undo/Redo)."""
+        self._pipeline_color = pipeline_color
+        self._reference_color = reference_color
+        self._update_color_buttons()
+        # Note: Do NOT emit signal here to prevent recursion
+        # The command will update the scene directly
+            
     # --- TODO Logic ---
     
     def _add_todo(self) -> None:
         text = self.todo_input.text().strip()
         if text:
-            self._create_todo_item(text, False)
+            # Emit request instead of creating directly
+            self.todo_added_requested.emit(text)
             self.todo_input.clear()
-            self.todo_changed.emit()
     
     def _create_todo_item(self, text: str, done: bool) -> None:
+        """Helper to create item visually (called by insert_todo or loading)."""
         item = QListWidgetItem(text)
         item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
         item.setCheckState(Qt.CheckState.Checked if done else Qt.CheckState.Unchecked)
@@ -584,11 +615,18 @@ class ProjectDockWidget(QDockWidget):
         self.todo_list.addItem(item)
     
     def _on_todo_item_changed(self, item) -> None:
-        # Update strikeout style based on check state
+        # Check if this is a toggle change
+        # If we had text editing, we'd need to distinguish
+        row = self.todo_list.row(item)
+        is_done = item.checkState() == Qt.CheckState.Checked
+        
+        # Update visual style immediately for responsiveness
         font = item.font()
-        font.setStrikeOut(item.checkState() == Qt.CheckState.Checked)
+        font.setStrikeOut(is_done)
         item.setFont(font)
         
+        # Emit request for undo history
+        self.todo_toggled_requested.emit(row, is_done)
         self.todo_changed.emit()
     
     def _show_todo_menu(self, pos: QPoint) -> None:
@@ -613,8 +651,9 @@ class ProjectDockWidget(QDockWidget):
         
         if action == delete_action:
             row = self.todo_list.row(item)
-            self.todo_list.takeItem(row)
-            self.todo_changed.emit()
+            text = item.text()
+            is_done = item.checkState() == Qt.CheckState.Checked
+            self.todo_removed_requested.emit(row, text, is_done)
         elif action == edit_action:
             self._edit_todo(item)
         elif action == move_up_action:
@@ -624,110 +663,159 @@ class ProjectDockWidget(QDockWidget):
 
     def _edit_todo(self, item: QListWidgetItem) -> None:
         """Edit todo item text."""
+        old_text = item.text()
         text, ok = QInputDialog.getText(
-            self, "Edit Task", "Task Description:", QLineEdit.EchoMode.Normal, item.text()
+            self, "Edit Task", "Task Description:", QLineEdit.EchoMode.Normal, old_text
         )
-        if ok and text.strip():
-            item.setText(text.strip())
+        if ok and text.strip() and text.strip() != old_text:
+            index = self.todo_list.row(item)
+            # Emit signal for undo/redo instead of directly modifying
+            self.todo_edited_requested.emit(index, old_text, text.strip())
+            
+    def remove_todo_at(self, index: int) -> None:
+        """Remove todo item at index."""
+        if 0 <= index < self.todo_list.count():
+            self.todo_list.takeItem(index)
+            self.todo_changed.emit()
+
+    def insert_todo(self, index: int, text: str, done: bool) -> None:
+        """Insert todo item at index."""
+        item = QListWidgetItem(text)
+        item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+        item.setCheckState(Qt.CheckState.Checked if done else Qt.CheckState.Unchecked)
+        
+        font = item.font()
+        font.setStrikeOut(done)
+        item.setFont(font)
+        
+        self.todo_list.insertItem(index, item)
+        self.todo_changed.emit()
+
+    def update_todo_text(self, index: int, text: str) -> None:
+        """Update text of todo item at index."""
+        if 0 <= index < self.todo_list.count():
+            item = self.todo_list.item(index)
+            item.setText(text)
+            self.todo_changed.emit()
+
+    def set_todo_status(self, index: int, done: bool) -> None:
+        """Set completion status of todo item at index."""
+        if 0 <= index < self.todo_list.count():
+            item = self.todo_list.item(index)
+            # Block signals to prevent recursion if calling from undo
+            self.todo_list.blockSignals(True)
+            item.setCheckState(Qt.CheckState.Checked if done else Qt.CheckState.Unchecked)
+            font = item.font()
+            font.setStrikeOut(done)
+            item.setFont(font)
+            self.todo_list.blockSignals(False)
+            self.todo_changed.emit()
+
+    def move_todo(self, from_index: int, to_index: int) -> None:
+        """Move todo item from index to index."""
+        if 0 <= from_index < self.todo_list.count() and 0 <= to_index < self.todo_list.count():
+            item = self.todo_list.takeItem(from_index)
+            self.todo_list.insertItem(to_index, item)
+            # Restore selection?
             self.todo_changed.emit()
             
     def _move_todo_up(self, item: QListWidgetItem) -> None:
         """Move todo item up."""
         row = self.todo_list.row(item)
         if row > 0:
-            current_item = self.todo_list.takeItem(row)
-            self.todo_list.insertItem(row - 1, current_item)
-            self.todo_list.setCurrentItem(current_item)
-            self.todo_changed.emit()
+            # Signal to main window to execute move command
+            if hasattr(self, 'move_todo_requested'):
+                self.move_todo_requested.emit(row, row - 1)
+            else:
+                self.move_todo(row, row - 1)
             
     def _move_todo_down(self, item: QListWidgetItem) -> None:
         """Move todo item down."""
         row = self.todo_list.row(item)
         if row < self.todo_list.count() - 1:
-            current_item = self.todo_list.takeItem(row)
-            self.todo_list.insertItem(row + 1, current_item)
-            self.todo_list.setCurrentItem(current_item)
-            self.todo_changed.emit()
+            if hasattr(self, 'move_todo_requested'):
+                self.move_todo_requested.emit(row, row + 1)
+            else:
+                self.move_todo(row, row + 1)
     
     def _add_tag(self) -> None:
         """Add a new tag."""
-        tag_name = self.tag_input.text().strip()
-        # Check if tag name already exists
-        existing_names = [t["name"] for t in self._tags]
-        if tag_name and tag_name not in existing_names:
-            tag_data = {"name": tag_name, "color": None}
-            self._tags.append(tag_data)
+        name = self.tag_input.text().strip()
+        if name:
+            # Check for duplicate
+            if any(t['name'] == name for t in self._tags):
+                return
             
-            widget = DraggableTagItem(tag_name, color=None)
-            widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-            widget.customContextMenuRequested.connect(lambda pos, w=widget: self._show_tag_menu(w))
-            widget.color_changed.connect(self._on_tag_color_changed)
-            
-            self._tag_widgets.append(widget)
-            # Insert before the stretch
-            self.tags_layout.insertWidget(self.tags_layout.count() - 1, widget)
-            
+            self.tag_added_requested.emit(name)
             self.tag_input.clear()
-            self.tag_added.emit(tag_name)
     
-    def _on_tag_color_changed(self, tag_name: str, color: str) -> None:
-        """Handle tag color change."""
-        for tag_data in self._tags:
-            if tag_data["name"] == tag_name:
-                tag_data["color"] = color
-                break
+    def _on_tag_color_changed(self, new_color: str) -> None:
+        """Handle tag color change from widget."""
+        widget = self.sender()
+        if isinstance(widget, DraggableTagItem):
+            # Find old color
+            old_color = "#607D8B"
+            for tag in self._tags:
+                if tag["name"] == widget.tag_name:
+                    old_color = tag["color"]
+                    break
+            
+            if old_color != new_color:
+                self.tag_color_changed_requested.emit(widget.tag_name, old_color, new_color)
     
     def _show_tag_menu(self, widget: DraggableTagItem) -> None:
-        """Show context menu for a tag."""
-        from PyQt6.QtWidgets import QMenu
+        """Show context menu for tag."""
+        from PyQt6.QtWidgets import QMenu, QColorDialog
+        from PyQt6.QtGui import QCursor
         menu = QMenu(self)
+        rename_action = menu.addAction("Rename")
+        color_action = menu.addAction("Change Color...")
+        delete_action = menu.addAction("Delete")
         
-        move_up_action = menu.addAction("Move Up")
-        move_down_action = menu.addAction("Move Down")
         menu.addSeparator()
-        change_color_action = menu.addAction("Change Color...")
-        rename_action = menu.addAction("Rename Tag")
-        delete_action = menu.addAction("Delete Tag")
+        move_up = menu.addAction("Move Up")
+        move_down = menu.addAction("Move Down")
         
-        action = menu.exec(widget.mapToGlobal(widget.rect().bottomLeft()))
+        action = menu.exec(QCursor.pos())
         
-        if action == move_up_action:
-            self._move_tag_up(widget)
-        elif action == move_down_action:
-            self._move_tag_down(widget)
-        elif action == change_color_action:
-            color = QColorDialog.getColor(widget._color, self, f"Choose color for '{widget.tag_name}'")
-            if color.isValid():
-                widget._custom_color = color.name()
-                widget._color = color
-                widget._update_style()
-                self._on_tag_color_changed(widget.tag_name, color.name())
-                # Emit signal to sync to nodes on canvas
-                self.tag_color_changed.emit(widget.tag_name, color.name())
+        if action == delete_action:
+            self._remove_tag(widget.tag_name)
         elif action == rename_action:
             self._rename_tag(widget)
-        elif action == delete_action:
-            self._remove_tag(widget.tag_name)
+        elif action == color_action:
+            self._change_tag_color(widget)
+        elif action == move_up:
+            self._move_tag_up(widget)
+        elif action == move_down:
+            self._move_tag_down(widget)
+    
+    def _change_tag_color(self, widget: DraggableTagItem) -> None:
+        """Change tag color via color dialog."""
+        from PyQt6.QtWidgets import QColorDialog
+        current_color = QColor(widget.get_color())
+        color = QColorDialog.getColor(current_color, self, f"Choose Color for '{widget.tag_name}'")
+        if color.isValid():
+            old_color = widget.get_color()
+            new_color = color.name()
+            if old_color != new_color:
+                # Emit signal for undo/redo
+                self.tag_color_changed_requested.emit(widget.tag_name, old_color, new_color)
     
     def _move_tag_up(self, widget: DraggableTagItem) -> None:
-        """Move a tag up in the list."""
-        idx = self._tag_widgets.index(widget)
-        if idx > 0:
-            # Swap in data
-            self._tags[idx], self._tags[idx - 1] = self._tags[idx - 1], self._tags[idx]
-            self._tag_widgets[idx], self._tag_widgets[idx - 1] = self._tag_widgets[idx - 1], self._tag_widgets[idx]
-            # Rebuild layout
-            self._rebuild_tag_layout()
+        try:
+            idx = self._tag_widgets.index(widget)
+            if idx > 0:
+                self.move_tag_requested.emit(idx, idx - 1)
+        except ValueError:
+            pass
     
     def _move_tag_down(self, widget: DraggableTagItem) -> None:
-        """Move a tag down in the list."""
-        idx = self._tag_widgets.index(widget)
-        if idx < len(self._tag_widgets) - 1:
-            # Swap in data
-            self._tags[idx], self._tags[idx + 1] = self._tags[idx + 1], self._tags[idx]
-            self._tag_widgets[idx], self._tag_widgets[idx + 1] = self._tag_widgets[idx + 1], self._tag_widgets[idx]
-            # Rebuild layout
-            self._rebuild_tag_layout()
+        try:
+            idx = self._tag_widgets.index(widget)
+            if idx < len(self._tag_widgets) - 1:
+                self.move_tag_requested.emit(idx, idx + 1)
+        except ValueError:
+            pass
     
     def _rebuild_tag_layout(self) -> None:
         """Rebuild the tag layout after reordering."""
@@ -751,25 +839,39 @@ class ProjectDockWidget(QDockWidget):
             text=old_name
         )
         if ok and new_name and new_name != old_name:
-            # Update internal list
-            for tag_data in self._tags:
-                if tag_data["name"] == old_name:
-                    tag_data["name"] = new_name
-                    break
-            
-            # Update widget (keep current color)
-            widget.tag_name = new_name
-            widget.setText(new_name)
-            # Don't regenerate color if custom color was set
-            if not widget._custom_color:
-                widget._color = widget._generate_color(new_name)
-                widget._update_style()
-            
-            # Emit signal for syncing to nodes
-            self.tag_renamed.emit(old_name, new_name)
+            # Emit signal for undo/redo (main.py will call rename_tag_item)
+            self.tag_renamed_requested.emit(old_name, new_name)
     
     def _remove_tag(self, tag_name: str) -> None:
-        """Remove a tag."""
+        """Remove a tag (emit signal for undo/redo)."""
+        # Find tag data for undo
+        tag_color = None
+        tag_index = 0
+        for i, tag_data in enumerate(self._tags):
+            if tag_data["name"] == tag_name:
+                tag_color = tag_data.get("color", "#607D8B")
+                tag_index = i
+                break
+        
+        # Emit signal for undo/redo (main.py will call remove_tag_by_name)
+        self.tag_removed_requested.emit(tag_name, tag_color or "#607D8B", tag_index)
+    
+    def insert_tag(self, index: int, name: str, color: str = None) -> None:
+        """Insert a tag at specific index."""
+        tag_data = {"name": name, "color": color}
+        self._tags.insert(index, tag_data)
+        
+        widget = DraggableTagItem(name, color=color)
+        widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        widget.customContextMenuRequested.connect(lambda pos, w=widget: self._show_tag_menu(w))
+        widget.color_changed.connect(self._on_tag_color_changed)
+        
+        self._tag_widgets.insert(index, widget)
+        self.tags_layout.insertWidget(index, widget)
+        self.tag_added.emit(name)
+
+    def remove_tag_by_name(self, tag_name: str) -> None:
+        """Remove a tag by name (called by undo/redo commands)."""
         # Find and remove from _tags list
         for tag_data in self._tags:
             if tag_data["name"] == tag_name:
@@ -782,8 +884,53 @@ class ProjectDockWidget(QDockWidget):
                 widget.deleteLater()
                 break
         
+        # Emit signal for node sync
         self.tag_removed.emit(tag_name)
-    
+
+    def rename_tag_item(self, old_name: str, new_name: str) -> None:
+        """Rename a tag item."""
+        # Find index
+        idx = -1
+        for i, tag in enumerate(self._tags):
+            if tag["name"] == old_name:
+                idx = i
+                break
+        
+        if idx != -1:
+            self._tags[idx]["name"] = new_name
+            widget = self._tag_widgets[idx]
+            widget.tag_name = new_name
+            widget.setText(new_name)
+            # Color stays the same - no need to regenerate
+            self.tag_renamed.emit(old_name, new_name)
+
+    def set_tag_color(self, tag_name: str, color: str) -> None:
+        """Set color for a tag."""
+        for i, tag in enumerate(self._tags):
+            if tag["name"] == tag_name:
+                tag["color"] = color
+                widget = self._tag_widgets[i]
+                widget.set_color(color)
+                # Emit signal for node sync
+                self.tag_color_changed.emit(tag_name, color)
+                break
+
+    def move_tag(self, from_index: int, to_index: int) -> None:
+        """Move tag from index to index."""
+        if 0 <= from_index < len(self._tags) and 0 <= to_index < len(self._tags):
+             # Swap in data
+            self._tags[from_index], self._tags[to_index] = self._tags[to_index], self._tags[from_index] # Not swap, insert/pop
+            
+            # Actually move logic is usually: pop then insert
+            # Correct logic:
+            tag_data = self._tags.pop(from_index)
+            self._tags.insert(to_index, tag_data)
+            
+            widget = self._tag_widgets.pop(from_index)
+            self._tag_widgets.insert(to_index, widget)
+            
+            self._rebuild_tag_layout()
+
     def set_tags(self, tags: list[dict]) -> None:
         """Set the tag list (for loading projects). Tags are dicts with 'name' and 'color'."""
         # Clear existing
@@ -810,12 +957,13 @@ class ProjectDockWidget(QDockWidget):
     
     def get_tags(self) -> list[dict]:
         """Get the current tag list with colors."""
-        # Sync colors from widgets back to data
         result = []
         for widget in self._tag_widgets:
+            color = widget.get_color()
             result.append({
                 "name": widget.tag_name,
-                "color": widget.get_color() if widget._custom_color else None
+                # Only store color if different from default
+                "color": color if color != DraggableTagItem.DEFAULT_COLOR else None
             })
         return result
 
@@ -1243,6 +1391,61 @@ class ModulePaletteItem(QLabel):
         super().mouseReleaseEvent(event)
 
 
+class WaypointPaletteItem(QLabel):
+    """A draggable waypoint item for connection bending."""
+    
+    def __init__(self, parent=None):
+        super().__init__("Waypoint", parent) 
+        self.module_type = "waypoint"
+        self._color = QColor("#607D8B")
+        
+        self.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
+        self.setFixedHeight(28)
+        self.setMinimumWidth(75)
+        self.setContentsMargins(8, 0, 8, 0)
+        self.setToolTip("Waypoint - drag to create connection bend points")
+        
+        self._update_style()
+    
+    def set_color(self, color: str) -> None:
+        """Update the waypoint palette color."""
+        self._color = QColor(color)
+        self._update_style()
+    
+    def _update_style(self) -> None:
+        self.setStyleSheet(f"""
+            QLabel {{
+                background-color: {self._color.name()};
+                color: white;
+                border-radius: 14px;
+                padding: 0 10px;
+            }}
+            QLabel:hover {{
+                background-color: {self._color.darker(110).name()};
+            }}
+        """)
+    
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+        super().mousePressEvent(event)
+    
+    def mouseMoveEvent(self, event):
+        if event.buttons() & Qt.MouseButton.LeftButton:
+            drag = QDrag(self)
+            mime = QMimeData()
+            mime.setText(f"module:{self.module_type}")
+            drag.setMimeData(mime)
+            drag.exec(Qt.DropAction.CopyAction)
+        super().mouseMoveEvent(event)
+    
+    def mouseReleaseEvent(self, event):
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
+        super().mouseReleaseEvent(event)
+
+
 class GroupPaletteItem(QLabel):
     """A draggable group module with dashed border styling."""
     
@@ -1369,6 +1572,10 @@ class ModulePalette(QWidget):
         self.group_item.color_changed.connect(self._on_item_color_changed)
         layout.addWidget(self.group_item)
         
+        # V3.9.0: Waypoint item
+        self.waypoint_item = WaypointPaletteItem()
+        layout.addWidget(self.waypoint_item)
+        
         layout.addStretch()
         
         # Help text
@@ -1387,7 +1594,21 @@ class ModulePalette(QWidget):
                 self._items[module_type].set_color(color)
             elif module_type == "group":
                 self.group_item.set_color(color)
+            elif module_type == "waypoint":
+                self.waypoint_item.set_color(color)
     
+    def set_color_for_type(self, module_type: str, color: str) -> None:
+        """Set color for a module type programmatically."""
+        if module_type in self._items:
+            self._items[module_type].set_color(color)
+        elif module_type == "group":
+            self.group_item.set_color(color)
+        elif module_type == "waypoint":
+            self.waypoint_item.set_color(color)
+        
+        # Emit signal to update existing nodes
+        self.color_changed.emit(module_type, color)
+
     def get_colors(self) -> dict:
         """Get current module colors."""
         colors = {mt: item.get_color() for mt, item in self._items.items()}

@@ -109,14 +109,16 @@ class NodeMetadata:
 class NodeData:
     """
     Represents a node in the graph.
-    Can be either a pipeline_module or reference_paper.
+    Types: "pipeline_module", "reference_paper", "waypoint"
     """
     id: str = field(default_factory=generate_uuid)
-    type: str = "pipeline_module"  # "pipeline_module" or "reference_paper"
+    type: str = "pipeline_module"  # "pipeline_module", "reference_paper", "waypoint"
     position: Position = field(default_factory=Position)
     tags: list[str] = field(default_factory=list)
     metadata: NodeMetadata = field(default_factory=NodeMetadata)
     snippets: list[Snippet] = field(default_factory=list)
+    is_flagged: bool = False  # V3.9.0: Flag status for pipeline nodes
+    is_locked: bool = False   # V3.9.0: Lock status to prevent movement
     
     def to_dict(self) -> dict:
         return {
@@ -125,7 +127,9 @@ class NodeData:
             "position": self.position.to_dict(),
             "tags": self.tags.copy(),
             "metadata": self.metadata.to_dict(),
-            "snippets": [s.to_dict() for s in self.snippets]
+            "snippets": [s.to_dict() for s in self.snippets],
+            "is_flagged": self.is_flagged,
+            "is_locked": self.is_locked
         }
     
     @classmethod
@@ -136,7 +140,9 @@ class NodeData:
             position=Position.from_dict(data.get("position", {})),
             tags=data.get("tags", []).copy(),
             metadata=NodeMetadata.from_dict(data.get("metadata", {})),
-            snippets=[Snippet.from_dict(s) for s in data.get("snippets", [])]
+            snippets=[Snippet.from_dict(s) for s in data.get("snippets", [])],
+            is_flagged=data.get("is_flagged", False),
+            is_locked=data.get("is_locked", False)
         )
 
 
@@ -167,7 +173,7 @@ class EdgeData:
 class GroupData:
     """
     Represents a group (subgraph) that can contain multiple nodes.
-    V3.5.0 feature.
+    V3.5.0 feature, V3.9.0 adds locking.
     """
     id: str = field(default_factory=generate_uuid)
     name: str = "Group"
@@ -176,6 +182,7 @@ class GroupData:
     height: float = 200.0
     color: str = "#78909C"  # Default blue-grey
     node_ids: list[str] = field(default_factory=list)  # IDs of contained nodes
+    is_locked: bool = False  # V3.9.0: Lock group and all contained nodes
     
     def to_dict(self) -> dict:
         return {
@@ -185,7 +192,8 @@ class GroupData:
             "width": self.width,
             "height": self.height,
             "color": self.color,
-            "node_ids": self.node_ids.copy()
+            "node_ids": self.node_ids.copy(),
+            "is_locked": self.is_locked
         }
     
     @classmethod
@@ -197,7 +205,8 @@ class GroupData:
             width=data.get("width", 300.0),
             height=data.get("height", 200.0),
             color=data.get("color", "#78909C"),
-            node_ids=data.get("node_ids", []).copy()
+            node_ids=data.get("node_ids", []).copy(),
+            is_locked=data.get("is_locked", False)
         )
 
 

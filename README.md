@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-3.5.0-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-3.9.0-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/python-3.10+-green.svg" alt="Python">
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey.svg" alt="Platform">
   <img src="https://img.shields.io/badge/license-MIT-orange.svg" alt="License">
@@ -17,10 +17,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/thefamer/ResearchFlow/releases"><strong>📥 Download v3.5.0 .exe from Releases</strong></a>
+  <a href="https://github.com/thefamer/ResearchFlow/releases"><strong>📥 Download v3.9.0 .exe from Releases</strong></a>
 </p>
 
-> **💡 Just want it to work?** v3.5.0 **portable standalone .exe** is available in [Releases](https://github.com/thefamer/ResearchFlow/releases) – download and run, no Python required!
+> **💡 Just want it to work?** v3.9.0 **portable standalone .exe** is available in [Releases](https://github.com/thefamer/ResearchFlow/releases) – download and run, no Python required!
 
 ---
 
@@ -28,66 +28,48 @@ ResearchFlow is a portable, aesthetically pleasing desktop application designed 
 
 ---
 
-## ✨ What's New in V3.5.0
+## ✨ What's New in V3.9.0
 
-### 📦 Node Grouping (Subgraphs)
-- **Visual Grouping**: Drag a "Group" module from the toolbar to create a container for your nodes.
-- **Auto-Containment**: Hold `Ctrl` while dragging a node into a group to add it. The group expands to fit.
-- **Group Movement**: Dragging the group moves all nodes inside it.
-- **Detachment**: Hold `Ctrl` while dragging a node out of a group to remove it.
-- **Customization**: Resize groups via corner handles, double-click to rename, and right-click to change color.
+### 🔄 Comprehensive Undo/Redo (Ctrl+Z / Ctrl+Y)
+- **Full Coverage**: Every action is now undoable! From canvas movements, node/group/edge creation and deletion, to sidebar changes (Description, TODOs, Tags).
+- **Persistent History**: Your undo history is automatically saved per project and restored when you reopen it.
+- **Deep States**: Supports 100 steps of history for worry-free experimentation.
 
-### ✅ TODO List Enhancements
-- **Task Management**: Right-click any task in the TODO list to **Edit**, **Move Up**, or **Move Down**.
-- **Intuitive Workflow**: Consistent with tag management, allowing for better prioritization of research tasks.
+### 📍 Waypoint Nodes (Connection Bending)
+- **Path Control**: Drag the "Waypoint" item from the palette to create flexible bend points for your connections.
+- **Adaptive Visuals**: Waypoints are larger when unconnected for easy selection and shrink to line-thickness when connected.
+- **Signal Tracking**: Waypoints automatically adopt the color of the incoming connection (Pipeline vs. Reference).
+- **Smart Alignment**: Supports Snap-to-Grid (`Shift`) and Group Binding (`Ctrl`).
 
-<details>
-<summary><strong>📜 Version History</strong></summary>
+### 🚩 Node Flagging & Locking
+- **Flagging**: Mark important nodes with a red flag icon. Flagged nodes feature a subtle red gradient highlight.
+- **Locking**: Prevent accidental movement by locking nodes. Locked nodes cannot be dragged unless unlocked.
+- **Group Locking**: Locking a group effectively locks all nodes inside it for stable layout management.
 
-### V3.1.0
-- **Tag Customization**: Custom colors and reordering for tags.
-- **Module Colors**: Customizable colors for toolbar modules that sync to canvas nodes.
-- **Bugfixes**: Fixed LaTeX rendering in packaged builds.
+### 🎨 Global Color Management & Synchronization
+- **Fixed Palette Sync**: Changing module colors in the palette now correctly applies to *all future* nodes created, as well as existing ones.
+- **Tag Sync**: Tag renaming, color changes, and deletions are now perfectly synchronized across all nodes in the scene.
+- **Default Aesthetics**: New tags now default to a clean, professional gray, reducing overhead for custom styling.
 
-### V3.0.1
-- **Clean Exit**: Fixed issue where application process remained running after closing.
-- **Icon Loading**: Fixed window icon not displaying in packaged .exe builds.
-
-### V3.0.0
-- **One-Click .exe**: Download and run – no Python installation required!
-- **True Portable Design**: All project data stored next to the `.exe`, perfect for USB drives.
-- **PyInstaller Optimized**: Properly handles frozen environment paths.
-- **Snippet Editor**: Text editing dialog now supports proper word wrap.
-- **Sidebar Animation**: Smoother slide-in/out transitions.
-
-</details>
+### 🛠️ UX Improvements & Bugfixes
+- **Group Drag Snap**: Fixed the "double-movement" bug where groups and child nodes would desync during Shift+Drag snapping.
+- **Multi-Select Stability**: Refined `Ctrl+Click` selection logic for reliable multi-item manipulation.
+- **Logical Connections**: Prevented invalid connections from Flowchart nodes specifically to Reference nodes.
+- **Group Deletion**: Automatically unbinds child nodes when a group is deleted.
 
 <details>
 <summary><strong>📜 Previous Versions</strong></summary>
 
-### V2.1.0
+### V3.5.0
+- **Node Grouping**: Visual containers with auto-containment (Ctrl+Drag).
+- **TODO Enhancements**: Context menu for editing and reordering tasks.
 
-#### 🖼️ Enhanced Media & Layout
-- **Image Snippets**: Auto-scaling images that fit perfectly within nodes. Double-click to view in full-size.
-- **Dynamic Resizing**: Nodes can now be resized horizontally! Drag the handle at the bottom-right corner to adjust layout.
-- **Smart Wrapping**: Long text snippets now automatically wrap and calculate height accurately.
+### V3.1.0
+- **Tag Customization**: Custom colors and reordering.
+- **Module Palette**: Global color management for module types.
 
-#### 🎨 UI Refinements
-- **Polished Sidebar**: Improved toggle button interactions and layout.
-- **Animated Zoom**: Smooth, eased zoom transitions when scrolling.
-- **Background Grid**: Subtle grid overlay on the canvas for easy node alignment.
-
-### V2.0.0
-
-#### 🎨 Modern UI/UX Overhaul
-- **Apple/Notion-Inspired Design**: Completely redesigned interface with rounded corners, subtle shadows, and a clean, minimalist aesthetic.
-- **Fluid Animations**: "Snappy" hover effects on nodes, smooth sidebar transitions, and refined interactions.
-- **Advanced Connections**: Bezier curves with tangent-correct arrowhead alignment for beautiful, readable flowcharts.
-
-#### 🎛️ Enhanced Global Management
-- **Smart Sidebar**: Collapsible project manager that tucks away neatly, accessible via a subtle floating toggle.
-- **Project Dashboard**: Integrated description editor, rich TODO list with strikethrough support, and global tag management.
-- **Theme Customization**: Global settings for pipeline and reference edge colors.
+### V3.0.0
+- **Portable .exe**: Standalone build with local data storage.
 
 </details>
 
@@ -96,73 +78,30 @@ ResearchFlow is a portable, aesthetically pleasing desktop application designed 
 ## 🚀 Key Features
 
 ### 📊 Flow & Design
-- **Pipeline Modules**: Drag-and-drop Input, Process, Decision, and Output modules.
-- **Smart Linking**: Right-click and drag to create smooth Bezier connections.
+- **Pipeline & Reference**: Distinguish between your research pipeline and supporting literature.
+- **Smart Waypoints**: Use waypoints to manage complex flowchart layouts without overlapping lines.
 - **Snap-to-Grid**: Hold `Shift` while moving nodes for precise 20px grid alignment.
+- **Node Status**: Toggle "Locked" or "Flagged" states for better organization.
+
+### 🔄 State Persistence
+- **Auto-Save**: Project data is saved automatically on every interaction.
+- **Undo History**: Full persistence of your operation history across sessions.
 
 ### 📄 Literature & Snippets
 - **Markdown Support**: Drag `.md` files to import papers as reference nodes.
-- **PDF to Markdown**: We recommend using [MinerU](https://github.com/opendatalab/MinerU) to convert PDF papers to Markdown format for import.
-- **LaTeX Rendering**: Native rendering of inline `$math$` and block `$$math$$` formulas with automatic numbering.
-- **Multimedia Snippets**: Paste images (`Ctrl+V`) or drag them directly onto nodes.
-- **Snippet Management**: Reorder snippets with `↑`/`↓` keys, delete with `Delete`.
-- **Text Snippets**: Add text notes with support for Chinese characters (auto-fallback to Microsoft YaHei).
-
-### 🏷️ Organization
-- **Tag System**: Create, rename, and drag tags onto nodes. Click tags on nodes to remove them.
-- **TODOs**: Integrated task management within your project view.
+- **LaTeX Rendering**: Native rendering of formulas with automatic numbering.
+- **Multimedia**: Paste images (`Ctrl+V`) or drag them directly onto nodes.
 
 ---
 
 ## 🛠️ Installation
 
-### Prerequisites
-
-- Python 3.10 or higher
-- Windows 10/11 (primary platform)
-
-### Quick Install
-
 ```bash
-# Clone the repository
 git clone https://github.com/thefamer/ResearchFlow.git
 cd ResearchFlow
-
-# Install dependencies
 pip install -r requirements.txt
-```
-
-Or install dependencies manually:
-
-```bash
-pip install PyQt6 latex2mathml
-```
-
-### Running
-
-```bash
 python main.py
 ```
-
-### 📦 Building Portable .exe (Optional)
-
-Create a standalone portable executable that runs without Python installed:
-
-```bash
-pip install pyinstaller
-
-# Option 1: Single folder (recommended, faster startup)
-pyinstaller --noconsole --onedir --icon=icon.ico --add-data "icon.ico;." ^
-    --collect-all latex2mathml --name="ResearchFlow" main.py
-
-# Option 2: Single file (slower startup, but just one file)
-pyinstaller --noconsole --onefile --icon=icon.ico --add-data "icon.ico;." ^
-    --collect-all latex2mathml --name="ResearchFlow" main.py
-```
-
-The generated files will be in the `dist/` folder. 
-
-> **✅ True Portable**: The `projects/` data folder is automatically created next to the `.exe` file, not in any temp or system folder. Copy the folder and your `projects/` anywhere!
 
 ---
 
@@ -170,15 +109,14 @@ The generated files will be in the `dist/` folder.
 
 | Action | Shortcut / Gesture |
 |--------|-------------------|
-| **Delete** | `Delete` key (Nodes, Edges, Snippets) |
-| **Snap Move** | Hold `Shift` + Drag Node |
-| **Reorder Snippets** | `↑` / `↓` keys |
-| **Paste Image** | `Ctrl+V` (with node selected) |
-| **Pan Canvas** | Middle Mouse Button Drag |
-| **Zoom** | Mouse Wheel (Smooth animated) |
-| **Save Project** | `Ctrl+S` |
-| **New Project** | `Ctrl+N` |
-| **Open Project** | `Ctrl+O` |
+| **Undo** | `Ctrl+Z` |
+| **Redo** | `Ctrl+Y` / `Ctrl+Shift+Z` |
+| **Delete** | `Delete` key |
+| **Snap Move** | Hold `Shift` + Drag |
+| **Group Bind** | Hold `Ctrl` + Drag into Group |
+| **Multi-Select** | `Ctrl` + Click |
+| **Zoom** | Mouse Wheel |
+| **Pan** | Middle Mouse Button Drag |
 
 ---
 
@@ -186,83 +124,16 @@ The generated files will be in the `dist/` folder.
 
 ```
 ResearchFlow/
-├── main.py              # Application Entry & Main Window
+├── main.py              # Application Entry & MainWindow
 ├── models.py            # Data Models (Dataclasses)
-├── graphics_items.py    # Custom QGraphicsItems (Nodes, Edges)
-├── widgets.py           # Custom UI Widgets & Modern Components
-├── utils.py             # Utilities, ModernTheme, ProjectManager
-├── icon.ico             # Application Icon
-├── DESIGN_SYSTEM.md     # Design Documentation
-├── requirements.txt     # Python Dependencies
-└── projects/            # Local Data Storage (auto-created)
-    └── <project_name>/
-        ├── project_data.json
-        └── assets/
-            ├── papers/
-            └── images/
+├── undo.py              # Undo/Redo Engine & Commands (V3.9.0)
+├── graphics_items.py    # Custom QGraphicsItems (Nodes, Groups, Waypoints)
+├── widgets.py           # Custom UI (Sidebar, Color Palette, Tags)
+├── utils.py             # Theme & Project Logic
+└── projects/            # Local Data Storage
 ```
 
 ---
 
-## 🔧 Technology Stack
-
-| Component | Technology |
-|-----------|------------|
-| **Language** | Python 3.10+ |
-| **UI Framework** | PyQt6 |
-| **Math Rendering** | latex2mathml |
-| **Data Storage** | JSON (portable, no database) |
-| **Graphics** | QGraphicsView Framework |
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! Here's how you can help:
-
-1. **Fork** the repository
-2. **Create** a feature branch (`git checkout -b feature/AmazingFeature`)
-3. **Commit** your changes (`git commit -m 'Add some AmazingFeature'`)
-4. **Push** to the branch (`git push origin feature/AmazingFeature`)
-5. **Open** a Pull Request
-
-### Development Notes
-
-- Follow PEP 8 style guidelines
-- Add type hints to new functions
-- Update documentation for new features
-- Test on Windows before submitting
-
----
-
-## 📋 Roadmap
-
-- [ ] macOS / Linux support
-- [ ] Export to PNG / PDF
-- [ ] Cloud sync integration
-- [ ] Plugin system
-- [ ] Dark theme
-
----
-
 ## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-## 🙏 Acknowledgments
-
-- Inspired by [Notion](https://notion.so) and [Obsidian](https://obsidian.md)
-- Built with [PyQt6](https://www.riverbankcomputing.com/software/pyqt/)
-- Icons and design inspired by Apple Human Interface Guidelines
-
----
-
-<p align="center">
-  Made with ❤️ for researchers everywhere
-</p>
-
-<p align="center">
-  <a href="#researchflow">Back to Top ↑</a>
-</p>
+MIT License. Made with ❤️ for researchers everywhere.

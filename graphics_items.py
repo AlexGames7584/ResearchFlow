@@ -10,6 +10,7 @@ import math
 from PyQt6.QtWidgets import (
     QGraphicsItem, QGraphicsRectItem, QGraphicsTextItem,
     QGraphicsPolygonItem, QGraphicsPathItem, QGraphicsPixmapItem,
+    QGraphicsEllipseItem,
     QGraphicsSceneMouseEvent, QGraphicsSceneHoverEvent,
     QStyleOptionGraphicsItem, QWidget, QMenu, QInputDialog, QLineEdit
 )
@@ -386,12 +387,14 @@ class TagBadge(QGraphicsRectItem):
     
     BADGE_HEIGHT = 16
     PADDING = 6
+    DEFAULT_COLOR = "#607D8B"  # Same as DraggableTagItem
     
-    def __init__(self, tag_name: str, parent: "BaseNodeItem"):
+    def __init__(self, tag_name: str, parent: "BaseNodeItem", color: str = None):
         super().__init__(parent)
         self.tag_name = tag_name
         self.parent_node = parent
-        self._color = self._generate_color(tag_name)
+        # Use provided color or default gray
+        self._color = QColor(color) if color else QColor(self.DEFAULT_COLOR)
         self._is_hover = False
         
         # Make interactive
@@ -404,15 +407,9 @@ class TagBadge(QGraphicsRectItem):
         
         self.setRect(0, 0, width, self.BADGE_HEIGHT)
     
-    def _generate_color(self, text: str) -> QColor:
-        """Generate a consistent color based on tag name."""
-        hash_val = sum(ord(c) for c in text)
-        hue = (hash_val * 37) % 360
-        return QColor.fromHsl(hue, 200, 120)
-    
     def set_color(self, color: str) -> None:
         """Set a custom color for this badge."""
-        self._color = QColor(color)
+        self._color = QColor(color) if color else QColor(self.DEFAULT_COLOR)
         self.update()
     
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: QWidget = None) -> None:
@@ -534,6 +531,7 @@ class BaseNodeItem(QGraphicsRectItem):
         self._drag_start_pos: Optional[QPointF] = None
         self._is_connection_source = False
         self._group_color = None
+        self._being_moved_by_group = False  # V3.9.0: Skip snap when moved by group
         
         # Setup flags
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
@@ -720,16 +718,29 @@ class BaseNodeItem(QGraphicsRectItem):
     
     def itemChange(self, change: QGraphicsItem.GraphicsItemChange, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
-            # Snap to grid when Shift is held
-            from PyQt6.QtWidgets import QApplication
-            from PyQt6.QtCore import Qt
-            modifiers = QApplication.keyboardModifiers()
-            if modifiers & Qt.KeyboardModifier.ShiftModifier:
-                grid_size = 20
-                new_pos = value
-                snapped_x = round(new_pos.x() / grid_size) * grid_size
-                snapped_y = round(new_pos.y() / grid_size) * grid_size
-                return QPointF(snapped_x, snapped_y)
+            # V3.9.0: Block movement if node is locked
+            if self.node_data.is_locked:
+                return self.pos()  # Keep current position
+            
+            # V3.9.0: Block movement if node is in a locked group
+            scene = self.scene()
+            if scene and hasattr(scene, '_groups'):
+                for group in scene._groups.values():
+                    if self.node_data.id in group.group_data.node_ids:
+                        if group.group_data.is_locked:
+                            return self.pos()  # Keep current position
+            
+            # Snap to grid when Shift is held, but NOT when being moved by group
+            if not self._being_moved_by_group:
+                from PyQt6.QtWidgets import QApplication
+                from PyQt6.QtCore import Qt
+                modifiers = QApplication.keyboardModifiers()
+                if modifiers & Qt.KeyboardModifier.ShiftModifier:
+                    grid_size = 20
+                    new_pos = value
+                    snapped_x = round(new_pos.x() / grid_size) * grid_size
+                    snapped_y = round(new_pos.y() / grid_size) * grid_size
+                    return QPointF(snapped_x, snapped_y)
         
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
             # Update node data
@@ -753,12 +764,24 @@ class BaseNodeItem(QGraphicsRectItem):
         self.update()
         super().hoverLeaveEvent(event)
     
+    _drag_start_pos = QPointF(0, 0)
+    
+    # Enable usage of mousePressEvent
+    
+    def mousePressEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        """Capture drag start position."""
+        self._drag_start_pos = self.pos()
+        super().mousePressEvent(event)
+    
     def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent) -> None:
         super().mouseReleaseEvent(event)
-        # Notify if drag finished (left button) - for group logic V3.5.0
-        if event.button() == Qt.MouseButton.LeftButton:
-            modifiers = event.modifiers()
-            self.signals.drag_finished.emit(self.node_data.id, modifiers)
+        
+        # If we were dragging to connect, connection is handled by view
+        if hasattr(self, '_is_dragging_to_connect') and self._is_dragging_to_connect:
+            return
+            
+        # Emit drag finished for grouping logic
+        self.signals.drag_finished.emit(self.node_data.id, event.modifiers())
     
     def contextMenuEvent(self, event):
         """Show context menu on right-click."""
@@ -773,6 +796,13 @@ class BaseNodeItem(QGraphicsRectItem):
         
         add_text_action = menu.addAction("Add Text Snippet")
         add_text_action.triggered.connect(self._add_text_snippet)
+        
+        menu.addSeparator()
+        
+        # V3.9.0: Lock/Unlock action
+        lock_text = "🔓 Unlock Node" if self.node_data.is_locked else "🔒 Lock Node"
+        lock_action = menu.addAction(lock_text)
+        lock_action.triggered.connect(self._toggle_lock)
         
         menu.addSeparator()
         
@@ -791,6 +821,12 @@ class BaseNodeItem(QGraphicsRectItem):
         
         self.update_layout()
         self.signals.snippet_added.emit(self.node_data.id)
+        self.signals.data_changed.emit(self.node_data.id)
+    
+    def _toggle_lock(self) -> None:
+        """Toggle the lock state of this node."""
+        self.node_data.is_locked = not self.node_data.is_locked
+        self.update()
         self.signals.data_changed.emit(self.node_data.id)
     
     def add_image_snippet(self, relative_path: str) -> None:
@@ -912,6 +948,72 @@ class BaseNodeItem(QGraphicsRectItem):
 
 
 # ============================================================================
+# Flag Button (V3.9.0)
+# ============================================================================
+class FlagButton(QGraphicsRectItem):
+    """Small clickable flag icon for marking important nodes."""
+    
+    SIZE = 20
+    
+    def __init__(self, parent: "PipelineModuleItem"):
+        super().__init__(parent)
+        self.parent_node = parent
+        self.setRect(0, 0, self.SIZE, self.SIZE)
+        self.setAcceptHoverEvents(True)
+        self._is_hover = False
+    
+    def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: QWidget = None) -> None:
+        rect = self.rect()
+        is_flagged = self.parent_node.node_data.is_flagged
+        
+        # Background on hover
+        if self._is_hover:
+            painter.setBrush(QBrush(QColor(0, 0, 0, 20)))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRoundedRect(rect, 4, 4)
+        
+        # Draw flag icon
+        flag_color = QColor("#E53935") if is_flagged else QColor("#9E9E9E")
+        painter.setPen(QPen(flag_color, 1.5))
+        painter.setBrush(QBrush(flag_color) if is_flagged else Qt.BrushStyle.NoBrush)
+        
+        # Flag pole
+        cx = rect.center().x()
+        top = rect.top() + 4
+        bottom = rect.bottom() - 4
+        painter.drawLine(QPointF(cx - 4, top), QPointF(cx - 4, bottom))
+        
+        # Flag triangle
+        flag_path = QPainterPath()
+        flag_path.moveTo(cx - 4, top)
+        flag_path.lineTo(cx + 6, top + 5)
+        flag_path.lineTo(cx - 4, top + 10)
+        flag_path.closeSubpath()
+        painter.drawPath(flag_path)
+    
+    def hoverEnterEvent(self, event: QGraphicsSceneHoverEvent) -> None:
+        self._is_hover = True
+        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.update()
+    
+    def hoverLeaveEvent(self, event: QGraphicsSceneHoverEvent) -> None:
+        self._is_hover = False
+        self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+        self.update()
+    
+    def mousePressEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            # Toggle flag state
+            self.parent_node.node_data.is_flagged = not self.parent_node.node_data.is_flagged
+            self.parent_node.update()  # Trigger repaint for gradient
+            self.update()
+            self.parent_node.signals.data_changed.emit(self.parent_node.node_data.id)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+
+# ============================================================================
 # Pipeline Module Item
 # ============================================================================
 class PipelineModuleItem(BaseNodeItem):
@@ -931,6 +1033,10 @@ class PipelineModuleItem(BaseNodeItem):
         super().__init__(node_data)
         module_type = node_data.metadata.module_type or "process"
         self._header_color = self.DEFAULT_COLORS.get(module_type, Colors.PIPELINE_PROCESS)
+        
+        # V3.9.0: Add flag button
+        self._flag_button = FlagButton(self)
+        self._position_flag_button()
     
     @property
     def module_type(self) -> str:
@@ -952,6 +1058,45 @@ class PipelineModuleItem(BaseNodeItem):
             return f"{name} [{type_label}]"
         return name
     
+    def _position_flag_button(self) -> None:
+        """Position the flag button in the header area."""
+        self._flag_button.setPos(self.node_width - FlagButton.SIZE - 8, 10)
+    
+    def _update_rect(self) -> None:
+        """Override to reposition flag button when rect changes."""
+        super()._update_rect()
+        if hasattr(self, '_flag_button'):
+            self._position_flag_button()
+    
+    def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: QWidget = None) -> None:
+        # Call parent paint first
+        super().paint(painter, option, widget)
+        
+        # V3.9.0: Draw red gradient at bottom when flagged
+        if self.node_data.is_flagged:
+            rect = self.rect()
+            gradient_height = 30
+            gradient_rect = QRectF(
+                rect.x(), rect.bottom() - gradient_height,
+                rect.width(), gradient_height
+            )
+            
+            # Create gradient from transparent to semi-transparent red
+            from PyQt6.QtGui import QLinearGradient
+            gradient = QLinearGradient(
+                gradient_rect.topLeft(),
+                gradient_rect.bottomLeft()
+            )
+            gradient.setColorAt(0.0, QColor(229, 57, 53, 0))    # Transparent
+            gradient.setColorAt(1.0, QColor(229, 57, 53, 60))   # Semi-transparent red
+            
+            # Clip to rounded rect
+            path = QPainterPath()
+            path.addRoundedRect(rect, 12, 12)
+            painter.setClipPath(path)
+            painter.fillRect(gradient_rect, gradient)
+            painter.setClipping(False)
+    
     def mouseDoubleClickEvent(self, event: QGraphicsSceneMouseEvent) -> None:
         """Edit module name on double-click header."""
         if event.pos().y() < self.HEADER_HEIGHT:
@@ -967,6 +1112,205 @@ class PipelineModuleItem(BaseNodeItem):
                 self.signals.data_changed.emit(self.node_data.id)
         else:
             super().mouseDoubleClickEvent(event)
+
+
+# ============================================================================
+# Waypoint Item (V3.9.0) - Connection Bending Point
+# ============================================================================
+class WaypointItem(QGraphicsEllipseItem):
+    """
+    A small waypoint node for creating connection bends.
+    Features:
+    - Circular shape, smaller when connected
+    - Inherits color from incoming edge
+    - Supports snap to grid and group binding
+    - Single in, single out connections
+    """
+    
+    SIZE_UNCONNECTED = 16
+    SIZE_CONNECTED = 10
+    DEFAULT_COLOR = "#607D8B"
+    
+    def __init__(self, node_data: NodeData = None, parent=None, initial_color: str = None):
+        super().__init__(parent)
+        from models import NodeData, Position, generate_uuid
+        
+        if node_data is None:
+            node_data = NodeData(
+                id=generate_uuid(),
+                type="waypoint",
+                position=Position(0, 0)
+            )
+        
+        self.node_data = node_data
+        self.signals = NodeSignals()
+        
+        self._color = QColor(initial_color if initial_color else self.DEFAULT_COLOR)
+        self._is_hover = False
+        self._has_incoming = False
+        self._group_color = None
+        self._being_moved_by_group = False
+        self._is_connection_source = False
+        self._is_reference_type = False  # Track if waypoint is carrying reference signal
+        
+        # Set initial size
+        size = self.SIZE_UNCONNECTED
+        self.setRect(-size/2, -size/2, size, size)
+        self.setPos(node_data.position.x, node_data.position.y)
+        
+        # Setup flags
+        self.setFlag(QGraphicsEllipseItem.GraphicsItemFlag.ItemIsMovable, True)
+        self.setFlag(QGraphicsEllipseItem.GraphicsItemFlag.ItemIsSelectable, True)
+        self.setFlag(QGraphicsEllipseItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
+        self.setAcceptHoverEvents(True)
+        self.setZValue(5)  # Above edges but below nodes
+    
+    def set_color(self, color: str) -> None:
+        """Set the waypoint color directly."""
+        self._color = QColor(color)
+        self.update()
+        
+    def set_reference_type(self, is_reference: bool, pipeline_color: str, reference_color: str) -> bool:
+        """Set whether waypoint carries reference signal. Returns True if changed."""
+        if self._is_reference_type == is_reference:
+            return False
+            
+        self._is_reference_type = is_reference
+        self.set_color(reference_color if is_reference else pipeline_color)
+        return True
+    
+    def set_has_incoming(self, has_incoming: bool) -> None:
+        """Update size based on whether there's an incoming connection."""
+        self._has_incoming = has_incoming
+        size = self.SIZE_CONNECTED if has_incoming else self.SIZE_UNCONNECTED
+        self.prepareGeometryChange()
+        self.setRect(-size/2, -size/2, size, size)
+        self.update()
+    
+    def set_group_color(self, color: Optional[str]) -> None:
+        """Set group color indicator."""
+        self._group_color = QColor(color) if color else None
+        self.update()
+    
+    def set_connection_source(self, is_source: bool) -> None:
+        """Set whether this waypoint is the source of a connection being drawn."""
+        self._is_connection_source = is_source
+        self.update()
+    
+    def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: QWidget = None) -> None:
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = self.rect()
+        
+        # Fill color
+        painter.setBrush(QBrush(self._color))
+        
+        # Border
+        if self._is_connection_source:
+            painter.setPen(QPen(QColor(ModernTheme.ACCENT_COLOR), 2, Qt.PenStyle.DashLine))
+        elif self.isSelected():
+            painter.setPen(QPen(QColor(ModernTheme.ACCENT_COLOR), 2))
+        elif self._group_color:
+            painter.setPen(QPen(self._group_color, 2))
+        elif self._is_hover:
+            painter.setPen(QPen(self._color.darker(120), 2))
+        else:
+            painter.setPen(QPen(self._color.darker(110), 1))
+        
+        painter.drawEllipse(rect)
+    
+    def boundingRect(self) -> QRectF:
+        return self.rect().adjusted(-3, -3, 3, 3)
+    
+    def hoverEnterEvent(self, event: QGraphicsSceneHoverEvent) -> None:
+        self._is_hover = True
+        self.update()
+        super().hoverEnterEvent(event)
+    
+    def hoverLeaveEvent(self, event: QGraphicsSceneHoverEvent) -> None:
+        self._is_hover = False
+        self.update()
+        super().hoverLeaveEvent(event)
+    
+    def itemChange(self, change: QGraphicsEllipseItem.GraphicsItemChange, value):
+        if change == QGraphicsEllipseItem.GraphicsItemChange.ItemPositionChange:
+            # V3.9.0: Block movement if locked
+            if self.node_data.is_locked:
+                return self.pos()
+            
+            # Check group lock
+            scene = self.scene()
+            if scene and hasattr(scene, '_groups'):
+                for group in scene._groups.values():
+                    if self.node_data.id in group.group_data.node_ids:
+                        if group.group_data.is_locked:
+                            return self.pos()
+            
+            # Snap to grid when Shift is held
+            if not self._being_moved_by_group:
+                from PyQt6.QtWidgets import QApplication
+                from PyQt6.QtCore import Qt
+                modifiers = QApplication.keyboardModifiers()
+                if modifiers & Qt.KeyboardModifier.ShiftModifier:
+                    grid_size = 20
+                    new_pos = value
+                    snapped_x = round(new_pos.x() / grid_size) * grid_size
+                    snapped_y = round(new_pos.y() / grid_size) * grid_size
+                    return QPointF(snapped_x, snapped_y)
+        
+        if change == QGraphicsEllipseItem.GraphicsItemChange.ItemPositionHasChanged:
+            pos = self.pos()
+            self.node_data.position.x = pos.x()
+            self.node_data.position.y = pos.y()
+            self.signals.position_changed.emit(self.node_data.id, pos.x(), pos.y())
+        
+        return super().itemChange(change, value)
+    
+    _drag_start_pos = None  # For undo/redo movement tracking
+    
+    def mousePressEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        """Capture drag start position."""
+        from PyQt6.QtCore import QPointF
+        self._drag_start_pos = QPointF(self.pos())
+        super().mousePressEvent(event)
+    
+    def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        super().mouseReleaseEvent(event)
+        if event.button() == Qt.MouseButton.LeftButton:
+            modifiers = event.modifiers()
+            self.signals.drag_finished.emit(self.node_data.id, modifiers)
+    
+    def contextMenuEvent(self, event) -> None:
+        """Show context menu."""
+        # Check if context menu should be suppressed (after connection)
+        scene = self.scene()
+        if scene and hasattr(scene, '_suppress_context_menu') and scene._suppress_context_menu:
+            scene._suppress_context_menu = False
+            event.accept()
+            return
+        
+        menu = QMenu()
+        
+        # Lock/Unlock
+        lock_text = "🔓 Unlock" if self.node_data.is_locked else "🔒 Lock"
+        lock_action = menu.addAction(lock_text)
+        lock_action.triggered.connect(self._toggle_lock)
+        
+        menu.addSeparator()
+        
+        delete_action = menu.addAction("Delete Waypoint")
+        delete_action.triggered.connect(self._request_delete)
+        
+        menu.exec(event.screenPos())
+    
+    def _toggle_lock(self) -> None:
+        self.node_data.is_locked = not self.node_data.is_locked
+        self.update()
+        self.signals.data_changed.emit(self.node_data.id)
+    
+    def _request_delete(self) -> None:
+        scene = self.scene()
+        if scene and hasattr(scene, 'remove_waypoint'):
+            scene.remove_waypoint(self.node_data.id)
 
 
 # ============================================================================
@@ -1177,7 +1521,7 @@ class ReferenceNodeItem(BaseNodeItem):
 # ============================================================================
 class EdgeItem(QGraphicsPathItem):
     """
-    A connection arrow between two nodes.
+    A connection arrow between two nodes or waypoints.
     Drawn as a curved bezier path with an arrowhead.
     Supports selection and deletion via context menu.
     Different colors for reference vs pipeline connections.
@@ -1185,7 +1529,7 @@ class EdgeItem(QGraphicsPathItem):
     
     ARROW_SIZE = 10
     
-    def __init__(self, source_node: BaseNodeItem, target_node: BaseNodeItem, edge_id: str = None,
+    def __init__(self, source_node, target_node, edge_id: str = None,
                  pipeline_color: str = "#607D8B", reference_color: str = "#4CAF50"):
         super().__init__()
         self.source_node = source_node
@@ -1194,6 +1538,7 @@ class EdgeItem(QGraphicsPathItem):
         self._is_hover = False
         
         # Determine edge type and color
+        # Reference edge if source is ReferenceNodeItem
         self._is_reference_edge = isinstance(source_node, ReferenceNodeItem)
         self._pipeline_color = QColor(pipeline_color)
         self._reference_color = QColor(reference_color)
@@ -1260,18 +1605,49 @@ class EdgeItem(QGraphicsPathItem):
         source_center = source_rect.center()
         target_center = target_rect.center()
         
-        # Calculate edge intersection points
-        source_edge = self._get_edge_point(source_rect, source_center, target_center)
-        target_edge = self._get_edge_point(target_rect, target_center, source_center)
+        # For WaypointItem, connect directly to center
+        if isinstance(self.source_node, WaypointItem):
+            source_edge = source_center
+        else:
+            source_edge = self._get_edge_point(source_rect, source_center, target_center)
+        
+        if isinstance(self.target_node, WaypointItem):
+            target_edge = target_center
+        else:
+            target_edge = self._get_edge_point(target_rect, target_center, source_center)
         
         # Calculate control points for bezier curve
         dx = target_edge.x() - source_edge.x()
         dy = target_edge.y() - source_edge.y()
         
+        # Calculate Euclidean distance
+        distance = math.sqrt(dx*dx + dy*dy)
+        
+        # Calculate angle in degrees (0 = Right, 90 = Down)
+        angle = math.degrees(math.atan2(dy, dx))
+        if angle < 0:
+            angle += 360
+            
+        # Determine direction vector based on 45-degree quadrants
+        if (angle >= 315) or (angle < 45):
+            # Right
+            dir_vec = QPointF(1, 0)
+        elif 45 <= angle < 135:
+            # Down
+            dir_vec = QPointF(0, 1)
+        elif 135 <= angle < 225:
+            # Left
+            dir_vec = QPointF(-1, 0)
+        else: # 225 <= angle < 315
+            # Up
+            dir_vec = QPointF(0, -1)
+            
         # Adjust control points based on direction
-        ctrl_offset = min(abs(dx) * 0.5, 80)  # Cap the curve
-        ctrl1 = QPointF(source_edge.x() + ctrl_offset * (1 if dx >= 0 else -1), source_edge.y())
-        ctrl2 = QPointF(target_edge.x() - ctrl_offset * (1 if dx >= 0 else -1), target_edge.y())
+        # Use dynamic offset based on distance, capped at 100
+        ctrl_offset = min(distance * 0.5, 100)
+        
+        ctrl1 = source_edge + dir_vec * ctrl_offset
+        ctrl2 = target_edge - dir_vec * ctrl_offset
         
         # Create path
         path = QPainterPath()
@@ -1404,6 +1780,7 @@ class GroupSignals(QObject):
     """Signals emitted by group items."""
     position_changed = pyqtSignal(str, float, float)  # group_id, x, y
     moved = pyqtSignal(str, float, float)  # group_id, dx, dy (for relative movement)
+    drag_finished = pyqtSignal(str, tuple, tuple)  # group_id, old_pos, new_pos (V3.9.0)
     color_changed = pyqtSignal(str, str)  # group_id, color
     size_changed = pyqtSignal(str, float, float)  # group_id, width, height
     name_changed = pyqtSignal(str, str)  # group_id, new_name
@@ -1531,6 +1908,8 @@ class GroupItem(QGraphicsRectItem):
                 return
             else:
                 self._is_dragging = True
+                # V3.9.0: Capture group position at drag start for undo
+                self._group_drag_start = (self.pos().x(), self.pos().y())
         super().mousePressEvent(event)
     
     def mouseMoveEvent(self, event: QGraphicsSceneMouseEvent) -> None:
@@ -1564,6 +1943,7 @@ class GroupItem(QGraphicsRectItem):
         super().mouseMoveEvent(event)
     
     def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        was_dragging = self._is_dragging
         self._is_dragging = False
         if self._is_resizing:
             self._is_resizing = False
@@ -1578,6 +1958,14 @@ class GroupItem(QGraphicsRectItem):
             self.signals.size_changed.emit(self.group_data.id, rect.width(), rect.height())
             event.accept()
             return
+        
+        # V3.9.0: Emit drag_finished if group was being dragged
+        if was_dragging and hasattr(self, '_group_drag_start'):
+            old_pos = self._group_drag_start
+            new_pos = (self.pos().x(), self.pos().y())
+            if old_pos != new_pos:
+                self.signals.drag_finished.emit(self.group_data.id, old_pos, new_pos)
+        
         super().mouseReleaseEvent(event)
     
     def mouseDoubleClickEvent(self, event: QGraphicsSceneMouseEvent) -> None:
@@ -1602,21 +1990,48 @@ class GroupItem(QGraphicsRectItem):
         
         change_color_action = menu.addAction("Change Color...")
         
+        menu.addSeparator()
+        
+        # V3.9.0: Lock/Unlock action
+        lock_text = "🔓 Unlock Group" if self.group_data.is_locked else "🔒 Lock Group"
+        lock_action = menu.addAction(lock_text)
+        
         action = menu.exec(event.screenPos())
         
         if action == change_color_action:
             color = QColorDialog.getColor(self._color, None, "Choose Group Color")
             if color.isValid():
                 self.set_color(color.name())
+        elif action == lock_action:
+            self.group_data.is_locked = not self.group_data.is_locked
+            self.update()
         
     def itemChange(self, change: QGraphicsRectItem.GraphicsItemChange, value):
         if change == QGraphicsRectItem.GraphicsItemChange.ItemPositionChange and self._is_dragging:
-            # Calculate delta and emit moved signal
+            # V3.9.0: Block movement if group is locked
+            if self.group_data.is_locked:
+                return self.pos()
+            
+            from PyQt6.QtWidgets import QApplication
+            from PyQt6.QtCore import Qt
+            
+            modifiers = QApplication.keyboardModifiers()
             new_pos = value
             old_pos = self.pos()
+            
+            # Apply snap to group position when Shift is held
+            if modifiers & Qt.KeyboardModifier.ShiftModifier:
+                grid_size = 20
+                snapped_x = round(new_pos.x() / grid_size) * grid_size
+                snapped_y = round(new_pos.y() / grid_size) * grid_size
+                new_pos = QPointF(snapped_x, snapped_y)
+                value = new_pos
+            
+            # Calculate delta from (potentially snapped) positions
             dx = new_pos.x() - old_pos.x()
             dy = new_pos.y() - old_pos.y()
             if dx != 0 or dy != 0:
+                # Emit moved signal with the actual delta (child nodes will use this)
                 self.signals.moved.emit(self.group_data.id, dx, dy)
                 
         if change == QGraphicsRectItem.GraphicsItemChange.ItemPositionHasChanged:
