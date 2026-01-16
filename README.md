@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-3.9.0-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-3.9.9-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/python-3.10+-green.svg" alt="Python">
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey.svg" alt="Platform">
   <img src="https://img.shields.io/badge/license-MIT-orange.svg" alt="License">
@@ -17,10 +17,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/thefamer/ResearchFlow/releases"><strong>📥 Download v3.9.0 .exe from Releases</strong></a>
+  <a href="https://github.com/thefamer/ResearchFlow/releases"><strong>📥 Download v3.9.9 .exe from Releases</strong></a>
 </p>
 
-> **💡 Just want it to work?** v3.9.0 **portable standalone .exe** is available in [Releases](https://github.com/thefamer/ResearchFlow/releases) – download and run, no Python required!
+> **💡 Just want it to work?** v3.9.9 **portable standalone .exe** is available in [Releases](https://github.com/thefamer/ResearchFlow/releases) – download and run, no Python required!
 
 ---
 
@@ -28,37 +28,34 @@ ResearchFlow is a portable, aesthetically pleasing desktop application designed 
 
 ---
 
-## ✨ What's New in V3.9.0
+## ✨ What's New in V3.9.9
 
-### 🔄 Comprehensive Undo/Redo (Ctrl+Z / Ctrl+Y)
-- **Full Coverage**: Every action is now undoable! From canvas movements, node/group/edge creation and deletion, to sidebar changes (Description, TODOs, Tags).
-- **Persistent History**: Your undo history is automatically saved per project and restored when you reopen it.
-- **Deep States**: Supports 100 steps of history for worry-free experimentation.
+### 🔄 Extended Undo/Redo Coverage
+- **Snippet Operations**: Full undo/redo for adding, removing, editing, and reordering snippets within nodes.
+- **Node Metadata**: Title, year, conference, and module name edits are now undoable.
+- **Tag Toggle**: Adding or removing tags from nodes can be undone/redone.
+- **Group Editing**: Group name changes and resize operations are fully reversible.
+- **Compound Edge Undo**: When connecting Reference→Pipeline nodes, snippet cloning is now bundled with the edge creation for proper undo behavior.
 
-### 📍 Waypoint Nodes (Connection Bending)
-- **Path Control**: Drag the "Waypoint" item from the palette to create flexible bend points for your connections.
-- **Adaptive Visuals**: Waypoints are larger when unconnected for easy selection and shrink to line-thickness when connected.
-- **Signal Tracking**: Waypoints automatically adopt the color of the incoming connection (Pipeline vs. Reference).
-- **Smart Alignment**: Supports Snap-to-Grid (`Shift`) and Group Binding (`Ctrl`).
+### 🎨 Tag Color Sync Fixes
+- **Fixed**: Tag colors now sync correctly to node badges after color changes.
+- **Fixed**: Tag move operations no longer corrupt the internal tag order.
+- **Improved**: TagColorChangeCommand now properly syncs colors to all affected nodes during undo/redo.
 
-### 🚩 Node Flagging & Locking
-- **Flagging**: Mark important nodes with a red flag icon. Flagged nodes feature a subtle red gradient highlight.
-- **Locking**: Prevent accidental movement by locking nodes. Locked nodes cannot be dragged unless unlocked.
-- **Group Locking**: Locking a group effectively locks all nodes inside it for stable layout management.
-
-### 🎨 Global Color Management & Synchronization
-- **Fixed Palette Sync**: Changing module colors in the palette now correctly applies to *all future* nodes created, as well as existing ones.
-- **Tag Sync**: Tag renaming, color changes, and deletions are now perfectly synchronized across all nodes in the scene.
-- **Default Aesthetics**: New tags now default to a clean, professional gray, reducing overhead for custom styling.
-
-### 🛠️ UX Improvements & Bugfixes
-- **Group Drag Snap**: Fixed the "double-movement" bug where groups and child nodes would desync during Shift+Drag snapping.
-- **Multi-Select Stability**: Refined `Ctrl+Click` selection logic for reliable multi-item manipulation.
-- **Logical Connections**: Prevented invalid connections from Flowchart nodes specifically to Reference nodes.
-- **Group Deletion**: Automatically unbinds child nodes when a group is deleted.
+### 🛠️ Technical Improvements
+- New command classes: `SnippetAddCommand`, `SnippetRemoveCommand`, `SnippetEditCommand`, `SnippetMoveCommand`, `NodeMetadataEditCommand`, `NodeTagToggleCommand`, `GroupNameEditCommand`, `GroupSizeCommand`.
+- New signals in `NodeSignals` and `GroupSignals` for request-based undo pattern.
+- `AddEdgeCommand` now stores cloned snippet data for proper redo support.
+- Added `_get_tag_color()` helper in BaseNodeItem for consistent tag color lookup.
 
 <details>
 <summary><strong>📜 Previous Versions</strong></summary>
+
+### V3.9.0
+- **Comprehensive Undo/Redo**: Every canvas action is undoable with 100-step history.
+- **Waypoint Nodes**: Flexible bend points for connections with adaptive visuals.
+- **Node Flagging & Locking**: Mark important nodes and prevent accidental movement.
+- **Global Color Sync**: Fixed palette and tag color synchronization.
 
 ### V3.5.0
 - **Node Grouping**: Visual containers with auto-containment (Ctrl+Drag).
