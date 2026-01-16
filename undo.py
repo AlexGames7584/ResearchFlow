@@ -1,5 +1,5 @@
 """
-ResearchFlow - Undo/Redo System (V3.9.9)
+ResearchFlow - Undo/Redo System
 Command pattern implementation for reversible operations.
 """
 
