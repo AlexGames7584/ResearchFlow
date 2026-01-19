@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-3.9.9-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-4.0.0-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/python-3.10+-green.svg" alt="Python">
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey.svg" alt="Platform">
   <img src="https://img.shields.io/badge/license-MIT-orange.svg" alt="License">
@@ -17,10 +17,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/thefamer/ResearchFlow/releases"><strong>📥 Download v3.9.9 .exe from Releases</strong></a>
+  <a href="https://github.com/thefamer/ResearchFlow/releases"><strong>📥 Download v4.0.0 .exe from Releases</strong></a>
 </p>
 
-> **💡 Just want it to work?** v3.9.9 **portable standalone .exe** is available in [Releases](https://github.com/thefamer/ResearchFlow/releases) – download and run, no Python required!
+> **💡 Just want it to work?** v4.0.0 **portable standalone .exe** is available in [Releases](https://github.com/thefamer/ResearchFlow/releases) – download and run, no Python required!
 
 ---
 
@@ -28,25 +28,31 @@ ResearchFlow is a portable, aesthetically pleasing desktop application designed 
 
 ---
 
-## ✨ What's New in V3.9.9
+## ✨ What's New in V4.0.0
 
-### 🔄 Extended Undo/Redo Coverage
-- **Snippet Operations**: Full undo/redo for adding, removing, editing, and reordering snippets within nodes.
-- **Node Metadata**: Title, year, conference, and module name edits are now undoable.
-- **Tag Toggle**: Adding or removing tags from nodes can be undone/redone.
-- **Group Editing**: Group name changes and resize operations are fully reversible.
-- **Compound Edge Undo**: When connecting Reference→Pipeline nodes, snippet cloning is now bundled with the edge creation for proper undo behavior.
+### 🔄 Complete Undo/Redo System (Stable Release)
+This release marks the **stable version** of the comprehensive undo/redo system, covering virtually all user interactions:
 
-### 🎨 Tag Color Sync Fixes
-- **Fixed**: Tag colors now sync correctly to node badges after color changes.
-- **Fixed**: Tag move operations no longer corrupt the internal tag order.
-- **Improved**: TagColorChangeCommand now properly syncs colors to all affected nodes during undo/redo.
+| Category | Supported Operations |
+|----------|---------------------|
+| **Canvas** | Node/Group/Edge creation & deletion, position changes |
+| **Snippets** | Add, remove, edit, reorder snippets |
+| **Metadata** | Title, year, conference, module name edits |
+| **Tags** | Add/remove tags on nodes, tag color/name changes |
+| **Groups** | Name edits, resize, node binding |
+| **Node States** | Flag toggle, lock toggle |
+| **Connections** | Edge creation with snippet cloning (Reference→Pipeline) |
 
-### 🛠️ Technical Improvements
-- New command classes: `SnippetAddCommand`, `SnippetRemoveCommand`, `SnippetEditCommand`, `SnippetMoveCommand`, `NodeMetadataEditCommand`, `NodeTagToggleCommand`, `GroupNameEditCommand`, `GroupSizeCommand`.
-- New signals in `NodeSignals` and `GroupSignals` for request-based undo pattern.
-- `AddEdgeCommand` now stores cloned snippet data for proper redo support.
-- Added `_get_tag_color()` helper in BaseNodeItem for consistent tag color lookup.
+### 🔒 Enhanced Locking System
+- **Flag & Lock Undo**: Toggling flag or lock state is now fully undoable.
+- **Locked Group Protection**: Nodes cannot be added to a locked group.
+- **Position Preservation**: Fixed critical bug where locked nodes would reset to origin (0,0) after project reload.
+
+### 🛠️ Bug Fixes & Stability
+- **Fixed**: Tag color synchronization after reordering tags.
+- **Fixed**: Tag move operation corrupting internal order.
+- **Fixed**: Node position data loss during lock/flag operations.
+- **Improved**: Position data is now explicitly preserved during all state changes.
 
 <details>
 <summary><strong>📜 Previous Versions</strong></summary>

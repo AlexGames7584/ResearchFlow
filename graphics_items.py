@@ -2233,6 +2233,9 @@ class GroupItem(QGraphicsRectItem):
     
     def add_node(self, node_id: str) -> None:
         """Add a node to this group."""
+        # V4.0.0: Prevent adding nodes to locked groups
+        if self.group_data.is_locked:
+            return
         if node_id not in self.group_data.node_ids:
             self.group_data.node_ids.append(node_id)
             self.signals.node_added.emit(self.group_data.id, node_id)
