@@ -77,6 +77,10 @@ class NodeSignals(QObject):
     
     # V3.9.0: Node tag toggle signal
     tag_toggle_requested = pyqtSignal(str, str, bool)  # node_id, tag_name, was_added
+    
+    # V3.9.9: Flag and lock toggle signals
+    flag_toggle_requested = pyqtSignal(str, bool)  # node_id, new_state
+    lock_toggle_requested = pyqtSignal(str, bool, bool)  # node_id, new_state, is_group
 
 
 # ============================================================================
@@ -804,7 +808,7 @@ class BaseNodeItem(QGraphicsRectItem):
         self.update()
         super().hoverLeaveEvent(event)
     
-    _drag_start_pos = QPointF(0, 0)
+    _drag_start_pos = None  # V3.9.9: Fix - use None instead of QPointF(0,0)
     
     # Enable usage of mousePressEvent
     
@@ -892,9 +896,22 @@ class BaseNodeItem(QGraphicsRectItem):
         self.signals.data_changed.emit(self.node_data.id)
     
     def _toggle_lock(self) -> None:
-        """Toggle the lock state of this node."""
-        self.node_data.is_locked = not self.node_data.is_locked
+        """Toggle the lock state of this node (emit request for undo)."""
+        new_state = not self.node_data.is_locked
+        self.signals.lock_toggle_requested.emit(self.node_data.id, new_state, False)
+    
+    def set_lock_internal(self, locked: bool) -> None:
+        """Internal: Set lock state (called by command)."""
+        # V3.9.9: Explicitly preserve position before any changes
+        current_pos = self.pos()
+        
+        self.node_data.is_locked = locked
         self.update()
+        
+        # V3.9.9: Ensure position data is synced with visual position
+        self.node_data.position.x = current_pos.x()
+        self.node_data.position.y = current_pos.y()
+        
         self.signals.data_changed.emit(self.node_data.id)
     
     def add_image_snippet(self, relative_path: str) -> None:
@@ -1087,11 +1104,11 @@ class FlagButton(QGraphicsRectItem):
     
     def mousePressEvent(self, event: QGraphicsSceneMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
-            # Toggle flag state
-            self.parent_node.node_data.is_flagged = not self.parent_node.node_data.is_flagged
-            self.parent_node.update()  # Trigger repaint for gradient
-            self.update()
-            self.parent_node.signals.data_changed.emit(self.parent_node.node_data.id)
+            # Emit signal for undo (V3.9.9)
+            new_state = not self.parent_node.node_data.is_flagged
+            self.parent_node.signals.flag_toggle_requested.emit(
+                self.parent_node.node_data.id, new_state
+            )
             event.accept()
             return
         super().mousePressEvent(event)
@@ -1197,6 +1214,22 @@ class PipelineModuleItem(BaseNodeItem):
                     self.node_data.id, "module_name", old_name, text)
         else:
             super().mouseDoubleClickEvent(event)
+    
+    def set_flag_internal(self, flagged: bool) -> None:
+        """Internal: Set flag state (called by command)."""
+        # V3.9.9: Explicitly preserve position
+        current_pos = self.pos()
+        
+        self.node_data.is_flagged = flagged
+        self.update()
+        if hasattr(self, '_flag_button') and self._flag_button:
+            self._flag_button.update()
+        
+        # V3.9.9: Ensure position data is synced
+        self.node_data.position.x = current_pos.x()
+        self.node_data.position.y = current_pos.y()
+        
+        self.signals.data_changed.emit(self.node_data.id)
 
 
 # ============================================================================
@@ -1388,8 +1421,22 @@ class WaypointItem(QGraphicsEllipseItem):
         menu.exec(event.screenPos())
     
     def _toggle_lock(self) -> None:
-        self.node_data.is_locked = not self.node_data.is_locked
+        """Toggle lock state (emit signal for undo)."""
+        new_state = not self.node_data.is_locked
+        self.signals.lock_toggle_requested.emit(self.node_data.id, new_state, False)
+    
+    def set_lock_internal(self, locked: bool) -> None:
+        """Internal: Set lock state (called by command)."""
+        # V3.9.9: Explicitly preserve position
+        current_pos = self.pos()
+        
+        self.node_data.is_locked = locked
         self.update()
+        
+        # V3.9.9: Ensure position data is synced
+        self.node_data.position.x = current_pos.x()
+        self.node_data.position.y = current_pos.y()
+        
         self.signals.data_changed.emit(self.node_data.id)
     
     def _request_delete(self) -> None:
@@ -1879,6 +1926,9 @@ class GroupSignals(QObject):
     
     # V3.9.0: Group size change request for undo
     size_resize_requested = pyqtSignal(str, tuple, tuple)  # group_id, old_rect, new_rect
+    
+    # V3.9.9: Lock toggle signal
+    lock_toggle_requested = pyqtSignal(str, bool)  # group_id, new_state
 
 
 class GroupItem(QGraphicsRectItem):
@@ -2115,8 +2165,21 @@ class GroupItem(QGraphicsRectItem):
             if color.isValid():
                 self.set_color(color.name())
         elif action == lock_action:
-            self.group_data.is_locked = not self.group_data.is_locked
-            self.update()
+            # V3.9.9: Emit signal for undo
+            new_state = not self.group_data.is_locked
+            self.signals.lock_toggle_requested.emit(self.group_data.id, new_state)
+    
+    def set_lock_internal(self, locked: bool) -> None:
+        """Internal: Set lock state (called by command)."""
+        # V3.9.9: Explicitly preserve position
+        current_pos = self.pos()
+        
+        self.group_data.is_locked = locked
+        self.update()
+        
+        # V3.9.9: Ensure position data is synced
+        self.group_data.position.x = current_pos.x() + self.rect().x()
+        self.group_data.position.y = current_pos.y() + self.rect().y()
         
     def itemChange(self, change: QGraphicsRectItem.GraphicsItemChange, value):
         if change == QGraphicsRectItem.GraphicsItemChange.ItemPositionChange and self._is_dragging:

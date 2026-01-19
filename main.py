@@ -44,7 +44,8 @@ from undo import (
     AddGroupCommand, RemoveGroupCommand, GroupMoveCommand, NodeGroupChangeCommand,
     GlobalEdgeColorChangeCommand, ModulePaletteColorChangeCommand,
     SnippetAddCommand, SnippetRemoveCommand, SnippetEditCommand, SnippetMoveCommand,
-    NodeMetadataEditCommand, GroupNameEditCommand, GroupSizeCommand, NodeTagToggleCommand
+    NodeMetadataEditCommand, GroupNameEditCommand, GroupSizeCommand, NodeTagToggleCommand,
+    NodeFlagToggleCommand, NodeLockToggleCommand
 )
 
 
@@ -80,6 +81,10 @@ class ResearchScene(QGraphicsScene):
     tag_toggle_requested = pyqtSignal(str, str, bool)  # node_id, tag_name, was_added
     group_name_edit_requested = pyqtSignal(str, str, str)  # group_id, old_name, new_name
     group_size_requested = pyqtSignal(str, tuple, tuple)  # group_id, old_rect, new_rect
+    
+    # V3.9.9: Flag and lock toggle signals
+    flag_toggle_requested = pyqtSignal(str, bool)  # node_id, new_state
+    lock_toggle_requested = pyqtSignal(str, bool, bool)  # node/group_id, new_state, is_group
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -177,6 +182,10 @@ class ResearchScene(QGraphicsScene):
         
         # V3.9.0: Connect tag toggle signal
         node.signals.tag_toggle_requested.connect(self._on_tag_toggle_requested)
+        
+        # V3.9.9: Connect flag and lock toggle signals
+        node.signals.flag_toggle_requested.connect(self._on_flag_toggle_requested)
+        node.signals.lock_toggle_requested.connect(self._on_lock_toggle_requested)
     
     def _on_node_interaction_finished(self, node_id: str, modifiers) -> None:
         """Handle node drag/interaction end."""
@@ -185,7 +194,7 @@ class ResearchScene(QGraphicsScene):
         
         # 2. Undo/Redo Movement Logic
         node = self._nodes.get(node_id) or self._waypoints.get(node_id)
-        if node and hasattr(node, '_drag_start_pos'):
+        if node and hasattr(node, '_drag_start_pos') and node._drag_start_pos is not None:
             old_pos = (node._drag_start_pos.x(), node._drag_start_pos.y())
             new_pos = (node.pos().x(), node.pos().y())
             
@@ -369,6 +378,8 @@ class ResearchScene(QGraphicsScene):
         # waypoint.signals.drag_finished.connect(self.check_node_grouping)
         waypoint.signals.drag_finished.connect(self._on_node_interaction_finished)
         waypoint.signals.data_changed.connect(self._on_node_changed)
+        # V3.9.9: Connect lock toggle signal
+        waypoint.signals.lock_toggle_requested.connect(self._on_lock_toggle_requested)
     
     def remove_waypoint(self, waypoint_id: str) -> None:
         """Remove a waypoint (Gatekeeper)."""
@@ -445,6 +456,8 @@ class ResearchScene(QGraphicsScene):
         # V3.9.0: Connect group name and size edit signals
         group.signals.name_edit_requested.connect(self._on_group_name_edit_requested)
         group.signals.size_resize_requested.connect(self._on_group_size_requested)
+        # V3.9.9: Connect group lock toggle signal
+        group.signals.lock_toggle_requested.connect(self._on_group_lock_toggle_requested)
         group.setZValue(-1)
 
     def remove_group(self, group_id: str) -> None:
@@ -592,6 +605,15 @@ class ResearchScene(QGraphicsScene):
     def _on_group_size_requested(self, group_id: str, old_rect: tuple, new_rect: tuple) -> None:
         self.group_size_requested.emit(group_id, old_rect, new_rect)
     
+    def _on_flag_toggle_requested(self, node_id: str, new_state: bool) -> None:
+        self.flag_toggle_requested.emit(node_id, new_state)
+    
+    def _on_lock_toggle_requested(self, node_id: str, new_state: bool, is_group: bool) -> None:
+        self.lock_toggle_requested.emit(node_id, new_state, is_group)
+    
+    def _on_group_lock_toggle_requested(self, group_id: str, new_state: bool) -> None:
+        self.lock_toggle_requested.emit(group_id, new_state, True)
+    
     def clear_all(self) -> None:
         """Clear all items from the scene."""
         self._nodes.clear()
@@ -648,6 +670,8 @@ class ResearchScene(QGraphicsScene):
             # V3.9.0: Connect group name and size edit signals
             group.signals.name_edit_requested.connect(self._on_group_name_edit_requested)
             group.signals.size_resize_requested.connect(self._on_group_size_requested)
+            # V3.9.9: Connect group lock toggle signal
+            group.signals.lock_toggle_requested.connect(self._on_group_lock_toggle_requested)
         
         # Create nodes and waypoints
         for node_data in data.nodes:
@@ -1257,6 +1281,10 @@ class MainWindow(QMainWindow):
         self.scene.group_name_edit_requested.connect(self._on_group_name_edit)
         self.scene.group_size_requested.connect(self._on_group_size_edit)
         
+        # V3.9.9: Connect flag and lock toggle signals
+        self.scene.flag_toggle_requested.connect(self._on_flag_toggle)
+        self.scene.lock_toggle_requested.connect(self._on_lock_toggle)
+        
         # Project dock (Replaces Tag dock)
         self.project_dock = ProjectDockWidget(self)
         # Tag signals (Undo/Redo)
@@ -1773,6 +1801,16 @@ class MainWindow(QMainWindow):
     def _on_group_size_edit(self, group_id: str, old_rect: tuple, new_rect: tuple):
         """Handle group size edit request."""
         cmd = GroupSizeCommand(self, group_id, old_rect, new_rect)
+        self.undo_manager.execute(cmd)
+    
+    def _on_flag_toggle(self, node_id: str, new_state: bool):
+        """Handle node flag toggle request."""
+        cmd = NodeFlagToggleCommand(self, node_id, new_state)
+        self.undo_manager.execute(cmd)
+    
+    def _on_lock_toggle(self, node_id: str, new_state: bool, is_group: bool):
+        """Handle node/group lock toggle request."""
+        cmd = NodeLockToggleCommand(self, node_id, new_state, is_group)
         self.undo_manager.execute(cmd)
     
     def _new_project(self) -> None:

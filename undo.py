@@ -1183,6 +1183,88 @@ class NodeTagToggleCommand(Command):
             tag_name=data["tag_name"],
             was_added=data["was_added"]
         )
+
+
+@dataclass
+class NodeFlagToggleCommand(Command):
+    """Command for toggling node flag state."""
+    context: Any
+    node_id: str
+    new_state: bool  # The state after toggle
+    
+    def execute(self) -> None:
+        self._set_flag(self.new_state)
+    
+    def undo(self) -> None:
+        self._set_flag(not self.new_state)
+    
+    def _set_flag(self, flagged: bool) -> None:
+        if hasattr(self.context, 'scene'):
+            node = self.context.scene._nodes.get(self.node_id)
+            if node:
+                node.set_flag_internal(flagged)
+    
+    def to_dict(self) -> dict:
+        return {
+            "type": "NodeFlagToggle",
+            "node_id": self.node_id,
+            "new_state": self.new_state
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict, context: Any) -> "NodeFlagToggleCommand":
+        return cls(
+            context=context,
+            node_id=data["node_id"],
+            new_state=data["new_state"]
+        )
+
+
+@dataclass
+class NodeLockToggleCommand(Command):
+    """Command for toggling node lock state."""
+    context: Any
+    node_id: str
+    new_state: bool  # The state after toggle
+    is_group: bool = False  # True if this is a group, not a node
+    
+    def execute(self) -> None:
+        self._set_lock(self.new_state)
+    
+    def undo(self) -> None:
+        self._set_lock(not self.new_state)
+    
+    def _set_lock(self, locked: bool) -> None:
+        if hasattr(self.context, 'scene'):
+            if self.is_group:
+                group = self.context.scene._groups.get(self.node_id)
+                if group:
+                    group.set_lock_internal(locked)
+            else:
+                node = self.context.scene._nodes.get(self.node_id)
+                if not node:
+                    node = self.context.scene._waypoints.get(self.node_id)
+                if node:
+                    node.set_lock_internal(locked)
+    
+    def to_dict(self) -> dict:
+        return {
+            "type": "NodeLockToggle",
+            "node_id": self.node_id,
+            "new_state": self.new_state,
+            "is_group": self.is_group
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict, context: Any) -> "NodeLockToggleCommand":
+        return cls(
+            context=context,
+            node_id=data["node_id"],
+            new_state=data["new_state"],
+            is_group=data.get("is_group", False)
+        )
+
+
 @dataclass
 class GlobalEdgeColorChangeCommand(Command):
     """Command for changing global edge colors."""
@@ -1468,7 +1550,10 @@ class UndoManager:
             # Group and tag (V3.9.0)
             "GroupNameEdit": GroupNameEditCommand,
             "GroupSize": GroupSizeCommand,
-            "NodeTagToggle": NodeTagToggleCommand
+            "NodeTagToggle": NodeTagToggleCommand,
+            # Flag and lock (V3.9.9)
+            "NodeFlagToggle": NodeFlagToggleCommand,
+            "NodeLockToggle": NodeLockToggleCommand
         }
         
         cls = command_classes.get(cmd_type)
