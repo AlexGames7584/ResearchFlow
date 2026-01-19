@@ -1540,18 +1540,18 @@ class UndoManager:
             "NodeGroupChange": NodeGroupChangeCommand,
             "GlobalEdgeColorChange": GlobalEdgeColorChangeCommand,
             "ModulePaletteColorChange": ModulePaletteColorChangeCommand,
-            # Snippet commands (V3.9.0)
+            # Snippet commands
             "SnippetAdd": SnippetAddCommand,
             "SnippetRemove": SnippetRemoveCommand,
             "SnippetEdit": SnippetEditCommand,
             "SnippetMove": SnippetMoveCommand,
-            # Node metadata edit (V3.9.0)
+            # Node metadata edit
             "NodeMetadataEdit": NodeMetadataEditCommand,
-            # Group and tag (V3.9.0)
+            # Group and tag
             "GroupNameEdit": GroupNameEditCommand,
             "GroupSize": GroupSizeCommand,
             "NodeTagToggle": NodeTagToggleCommand,
-            # Flag and lock (V3.9.9)
+            # Flag and lock
             "NodeFlagToggle": NodeFlagToggleCommand,
             "NodeLockToggle": NodeLockToggleCommand
         }
