@@ -292,6 +292,11 @@ class TagRemoveCommand(Command):
     def execute(self) -> None:
         if hasattr(self.context, 'project_dock'):
             self.context.project_dock.remove_tag_by_name(self.tag_name)
+        # V4.1.1: Also remove from all nodes
+        if hasattr(self.context, 'scene'):
+            for node in self.context.scene._nodes.values():
+                if self.tag_name in node.node_data.tags:
+                    node.remove_tag_internal(self.tag_name)
             
     def undo(self) -> None:
         if hasattr(self.context, 'project_dock'):

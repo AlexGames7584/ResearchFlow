@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-4.1.0-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-4.1.1-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/python-3.10+-green.svg" alt="Python">
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey.svg" alt="Platform">
   <img src="https://img.shields.io/badge/license-MIT-orange.svg" alt="License">
@@ -17,10 +17,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/thefamer/ResearchFlow/releases"><strong>📥 Download v4.1.0 .exe from Releases</strong></a>
+  <a href="https://github.com/thefamer/ResearchFlow/releases"><strong>📥 Download v4.1.1 .exe from Releases</strong></a>
 </p>
 
-> **💡 Just want it to work?** v4.1.0 **portable standalone .exe** is available in [Releases](https://github.com/thefamer/ResearchFlow/releases) – download and run, no Python required!
+> **💡 Just want it to work?** v4.1.1 **portable standalone .exe** is available in [Releases](https://github.com/thefamer/ResearchFlow/releases) – download and run, no Python required!
 
 ---
 
@@ -28,23 +28,28 @@ ResearchFlow is a portable, aesthetically pleasing desktop application designed 
 
 ---
 
-## ✨ What's New in V4.1.0
+## ✨ What's New in V4.1.1
 
-### 🎨 Infinite Canvas
-- **Expanded Workspace**: Canvas now extends to ±25,000 units in all directions, similar to Figma's infinite canvas design.
+### 🏷️ Tag System Fix
+- **Fixed**: "New Tag" button now works correctly with proper undo/redo support.
+- **Fixed**: Removed duplicate method definitions that were overriding undo-enabled handlers.
+- **Improved**: Tag removal now properly clears the tag from all nodes via `TagRemoveCommand`.
+
+### 🎨 Infinite Canvas (from V4.1.0)
+- **Expanded Workspace**: Canvas extends to ±25,000 units in all directions.
 - **Seamless Panning**: Navigate freely without hitting boundaries.
 
-### ⌨️ Smart Description Undo
-- **Command Batching**: Consecutive text edits within 3 seconds are merged into a single undo action.
-- **Cursor Preservation**: Fixed bug where cursor would jump to the beginning after each keystroke during undo/redo.
-- **Efficient History**: Reduces undo stack clutter from rapid typing.
-
-### 🛠️ Technical Details
-- Description changes use `can_merge_with()` and `merge_with()` pattern for intelligent batching.
-- New `set_description_no_cursor_reset()` method preserves cursor position during text updates.
+### ⌨️ Smart Description Undo (from V4.1.0)
+- **Command Batching**: Consecutive text edits within 3 seconds merge into one undo action.
+- **Cursor Preservation**: Fixed cursor jumping during undo/redo.
 
 <details>
 <summary><strong>📜 Previous Versions</strong></summary>
+
+### V4.1.0
+- **Infinite Canvas**: Workspace extends to ±25,000 units.
+- **Smart Description Undo**: Command batching for text edits.
+- **Cursor Preservation**: Fixed cursor jumping in description field.
 
 ### V4.0.0
 - **Complete Undo/Redo System**: Stable version covering canvas, snippets, metadata, tags, groups, and node states.

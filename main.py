@@ -1936,7 +1936,7 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self, "About ResearchFlow",
             "<h2>ResearchFlow</h2>"
-            "<p>Version 4.1.0</p>"
+            "<p>Version 4.1.1</p>"
             "<p>A portable research management tool for academics.</p>"
             "<p>Built with Python and PyQt6.</p>"
             "<hr>"
@@ -1949,17 +1949,6 @@ class MainWindow(QMainWindow):
             "<li>Node grouping (subgraphs)</li>"
             "</ul>"
         )
-    
-    def _on_tag_added(self, tag: str) -> None:
-        """Handle new tag creation."""
-        self._auto_save()
-    
-    def _on_tag_removed(self, tag: str) -> None:
-        """Handle tag removal."""
-        # Remove from all nodes
-        for node in self.scene._nodes.values():
-            node.remove_tag(tag)
-        self._auto_save()
     
     def _on_tag_renamed_sync(self, old_name: str, new_name: str) -> None:
         """Handle tag rename - sync to all nodes."""
