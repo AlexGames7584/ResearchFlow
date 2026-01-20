@@ -447,6 +447,14 @@ class ResearchScene(QGraphicsScene):
         finally:
             self._is_undo_operation = False
 
+    def add_group(self, group_data) -> None:
+        """Add a group (Gatekeeper for undo)."""
+        if self._is_undo_operation:
+            self.restore_group(group_data)
+        else:
+            # Emit signal for undo system
+            self.group_added_requested.emit(group_data.to_dict())
+
     def restore_group(self, group_data) -> None:
         """Restore a group from data."""
         group = GroupItem(group_data)
@@ -464,8 +472,18 @@ class ResearchScene(QGraphicsScene):
         group.signals.lock_toggle_requested.connect(self._on_group_lock_toggle_requested)
         group.setZValue(-1)
 
+    def delete_group(self, group_id: str) -> None:
+        """Delete a group (Gatekeeper for undo)."""
+        if self._is_undo_operation:
+            self.remove_group(group_id)
+        else:
+            # Emit signal for undo system
+            group = self._groups.get(group_id)
+            if group:
+                self.group_removed_requested.emit(group.group_data.to_dict())
+
     def remove_group(self, group_id: str) -> None:
-        """Remove a group by ID."""
+        """Remove a group by ID (internal)."""
         self._is_undo_operation = True
         try:
             if group_id in self._groups:
@@ -1081,11 +1099,8 @@ class ResearchView(QGraphicsView):
             color=group_color
         )
         
-        group = GroupItem(group_data)
-        self._research_scene.addItem(group)
-        self._research_scene._groups[group_data.id] = group
-        group.signals.moved.connect(self._research_scene.update_group_nodes_position)
-        group.signals.color_changed.connect(self._research_scene.update_group_color_visuals)
+        # V4.1.1: Use gatekeeper for undo support
+        self._research_scene.add_group(group_data)
     
     def _create_module(self, module_type: str, pos: QPointF) -> None:
         """Create a new pipeline module at position."""

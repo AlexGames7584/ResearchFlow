@@ -35,6 +35,11 @@ ResearchFlow is a portable, aesthetically pleasing desktop application designed 
 - **Fixed**: Removed duplicate method definitions that were overriding undo-enabled handlers.
 - **Improved**: Tag removal now properly clears the tag from all nodes via `TagRemoveCommand`.
 
+### 📦 Group Operations Undo/Redo
+- **Fixed**: Creating groups via drag-drop now uses gatekeeper pattern for proper undo support.
+- **Added**: `add_group()` and `delete_group()` gatekeeper methods in ResearchScene.
+- **Improved**: Group creation, deletion, movement, and renaming are all fully undoable.
+
 ### 🎨 Infinite Canvas (from V4.1.0)
 - **Expanded Workspace**: Canvas extends to ±25,000 units in all directions.
 - **Seamless Panning**: Navigate freely without hitting boundaries.
